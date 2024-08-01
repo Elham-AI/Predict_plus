@@ -1,0 +1,432 @@
+import optuna
+import pandas as pd
+import numpy as np
+import lightgbm as lgb
+from tqdm import tqdm
+import logging
+from datetime import timedelta
+from sklearn.model_selection import KFold
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_absolute_percentage_error,mean_absolute_error,r2_score,f1_score
+from sklearn.ensemble import VotingRegressor
+from sklearn.linear_model import *
+from sklearn.naive_bayes import *
+from sklearn.tree import *
+from sklearn.ensemble import *
+from sklearn.svm import *
+from sklearn.neighbors import *
+import pickle
+import warnings
+from sklearn.preprocessing import LabelEncoder,OneHotEncoder
+import json
+from datetime import datetime
+class AutoML:
+    def __init__(self,data:pd.DataFrame,interpretability:float,target_column:str,data_preprocessing:bool=False):
+        self.data = data
+        self.interpretability = interpretability
+        self.target_column = target_column
+        self.data_preprocessing = data_preprocessing
+        if self.target_column not in list(self.data.columns):
+            raise RuntimeError(f"the target column should be on of the data columns : {list(self.data.columns)}")
+        self.features_num = []
+        self.features_cat = []
+        self.features_date = []
+        self.features_bool = []
+        self.ml_algorithms = pd.read_csv('ml_algorithms.csv',sep='\t')
+        self.ml_algorithms_parameters = json.load(open('ml_algorithms_parameters.json','r'))
+        for col in self.data.columns:
+            if str(self.data[col].dtype) in ['float32','float64','int32','int64']:
+                self.features_num.append(col)
+            elif 'datetime' in str(self.data[col].dtype):
+                self.features_date.append(col)
+            else:
+                self.features_cat.append(col)
+        print(self.data.info())
+        self.encoders = {}
+        self.refine_the_data()
+        print(self.data.info())
+        if 'float' in str(self.data[self.target_column].dtype) or 'int' in str(self.data[self.target_column].dtype):
+            self.features_num.remove(self.target_column)
+        elif 'bool' in str(self.data[self.target_column].dtype):
+            self.features_bool.remove(self.target_column)
+        else:
+            self.features_cat.remove(self.target_column)
+        self.X = self.data.drop(columns=self.target_column)
+        self.y = self.data[self.target_column]
+        
+        
+    def refine_the_data(self):
+        logging.info('Start casting to numarical features')
+        # from catagorical data to numarical
+        new_cols = []
+        for col in tqdm(self.features_cat):
+            try:
+                self.data[col] = self.data[col].astype('float64')
+                self.features_num.append(col)
+                new_cols.append(col)
+            except:
+                continue
+        for col in new_cols:
+            self.features_cat.remove(col)
+            
+        # from catagorical data to dates
+        logging.info('Start casting to date features')
+        new_cols = []
+        for col in tqdm(self.features_cat):
+            try:
+                warnings.simplefilter(action='ignore', category=UserWarning)
+                self.data[col] = pd.to_datetime(self.data[col])
+                self.features_date.append(col)
+                new_cols.append(col)
+            except Exception as e:
+                continue
+        for col in new_cols:
+            self.features_cat.remove(col)
+
+        # Calculate the n unique
+        cols_nunique = self.data[self.features_cat].nunique()
+        cols_nunique_bool = cols_nunique[cols_nunique==2]
+        cols_nunique_id = cols_nunique[cols_nunique==self.data.shape[0]]
+        cols_nunique_alot = cols_nunique[cols_nunique>100]
+        
+        # from catagorical to bool
+        logging.info('Start casting to bool features')
+        for col in tqdm(cols_nunique_bool.index):
+            self.encoders[col] = {}
+            uniques = list(self.data[col].unique())
+            for i,j in enumerate(uniques):
+                self.encoders[col][j] = bool(i)
+            self.data[col] = self.data[col].map(self.encoders[col])
+            self.features_cat.remove(col)
+            self.features_bool.append(col)
+            
+        # from numarical to bool
+        cols_nunique = self.data[self.features_num].nunique()
+        cols_nunique_bool = cols_nunique[cols_nunique==2]
+        for col in tqdm(cols_nunique_bool.index):
+            self.data[col] = self.data[col].astype(bool)
+            self.features_num.remove(col)
+            self.features_bool.append(col)
+
+        # drop ids columns and columns with a lot of unique values
+        self.data = self.data.drop(columns=list(cols_nunique_id.index)+list(cols_nunique_alot.index))
+        for col in list(cols_nunique_id.index)+list(cols_nunique_alot.index):
+            self.features_cat.remove(col)
+            
+        # Add date features
+        if self.features_date:
+            logging.info('Start creating date features')
+        for col in tqdm(self.features_date):
+            self.data[col+'_'+'day_of_year'] = self.data[col].dt.day_of_year
+            self.features_num.append(col+'_'+'day_of_year')
+            self.data[col+'_'+'quarter'] = self.data[col].dt.quarter
+            self.features_num.append(col+'_'+'quarter')
+            self.data[col+'_'+'day_of_week'] = self.data[col].dt.day_of_week 
+            self.features_num.append(col+'_'+'day_of_week')
+            self.data[col+'_'+'days_in_month'] = self.data[col].dt.days_in_month 
+            self.features_num.append(col+'_'+'days_in_month')
+            self.data[col+'_'+'day'] = self.data[col].dt.day
+            self.features_num.append(col+'_'+'day')
+            self.data[col+'_'+'month'] = self.data[col].dt.month
+            self.features_num.append(col+'_'+'month')
+            self.data[col+'_'+'year'] = self.data[col].dt.year
+            self.features_num.append(col+'_'+'year')
+            self.data[col+'_'+'hour'] = self.data[col].dt.hour
+            self.features_num.append(col+'_'+'hour')
+            self.data[col+'_'+'day_of_year'+'_sin'] = (np.pi *self.data[col+'_'+'day_of_year'] / 183).apply(lambda x:np.sin(x))
+            self.features_num.append(col+'_'+'day_of_year'+'_sin')
+            self.data[col+'_'+'hour'+'_sin'] = (np.pi *self.data[col+'_'+'hour'] / 12).apply(lambda x:np.sin(x))
+            self.features_num.append(col+'_'+'hour'+'_sin')
+        # remove nan columns
+        nan_columns = list(self.data.isna().all()[self.data.isna().all()].index)
+        self.data = self.data.dropna(axis=1,how='all')
+        for col in nan_columns:
+            if col in self.features_cat:
+                self.features_cat.remove(col)
+            elif col in self.features_num:
+                self.features_num.remove(col)
+            elif col in self.features_bool:
+                self.features_bool.remove(col)
+        self.data = self.data.drop(columns=self.features_date)
+
+        # Fill nan columns
+        self.data[self.features_cat] = self.data[self.features_cat].fillna('UNK')
+        self.data[self.features_num] = self.data[self.features_num].fillna(0)
+        self.data[self.features_bool] = self.data[self.features_bool].fillna(False)
+        
+        # Drop constant columns
+        constant_columns = list(self.data[self.features_num].std(axis=0)[self.data[self.features_num].std(axis=0)==0].index)
+        for col in constant_columns:
+            self.features_num.remove(col)
+        if constant_columns:
+            self.data = self.data.drop(columns=constant_columns)
+        
+        # Define the taask
+        if str(self.data[self.target_column].dtype) == 'bool':
+            self.task = 'binary_classification'
+        elif str(self.data[self.target_column].dtype) == 'object':
+            self.task = 'multi_classification'
+        elif str(self.data[self.target_column].dtype) in ['float64','float32','int64','int32']:
+            self.task = 'regression'
+        logging.info(f'The selected task is {self.task}')
+    def preprocess(self,type_num,type_cat):
+        X_cat = self.X[self.features_cat].copy()
+        X_num = self.X[self.features_num].copy()
+        X_bool = self.X[self.features_bool].copy().values
+        num_pars = {}
+        if type_num == 'min_max':
+            X_min = X_num.min(axis=0)
+            X_max = X_num.max(axis=0)
+            new_X_num = (X_num - X_min)/(X_max - X_min)
+            num_pars = {'X_min':X_min,'X_max':X_max}
+        elif type_num == 'standard':
+            X_mean = X_num.mean(axis=0)
+            X_std = X_num.std(axis=0)
+            new_X_num = (X_num - X_mean)/X_std
+            num_pars = {'X_mean':X_mean,'X_std':X_std}
+        else:
+            raise RuntimeError("wrong preprocessing type")
+            
+        if type_cat == 'label':
+            for col in self.features_cat:
+                le = LabelEncoder()
+                le.fit(X_cat[col])
+                X_cat.loc[:,col] = le.transform(X_cat[col])
+                self.encoders[col] = le
+            X_cat = X_cat.values
+       
+        elif type_cat == 'one_hot':
+            one_hots = []
+            for col in self.features_cat:
+                le = OneHotEncoder()
+                le.fit(X_cat[col].values.reshape(-1, 1))
+                one_hots.append(le.transform(X_cat[col].values.reshape(-1, 1)).toarray())
+                self.encoders[col] = le
+            X_cat = np.concatenate(one_hots,axis=1)
+        else:
+            raise RuntimeError("wrong preprocessing type")
+            
+        if self.task == 'regression':
+            if type_num == 'min_max':
+                y_min = self.y.copy().min(axis=0)
+                y_max = self.y.copy().max(axis=0)
+                new_y = (self.y.copy() - y_min)/(y_max - y_min)
+                new_y = new_y.to_numpy()
+                num_pars['y_min']=y_min
+                num_pars['y_max']=y_max
+                
+            elif type_num == 'standard':
+                y_mean = self.y.copy().mean(axis=0)
+                y_std = self.y.copy().std(axis=0)
+                new_y = (self.y.copy() - y_mean)/y_std
+                new_y = new_y.to_numpy()
+                num_pars['y_std']=y_std
+                num_pars['y_mean']=y_mean
+        elif self.task == 'multi_classification' or self.task == 'binary_classification':
+            # if type_cat == 'label':
+            le = LabelEncoder()
+            le.fit(self.y.copy())
+            new_y= le.transform(self.y.copy())
+            self.encoders['target'] = le
+            # elif type_cat == 'one_hot':
+            #     le = OneHotEncoder()
+            #     le.fit(self.y.copy().values.reshape(-1, 1))
+            #     new_y = le.transform(self.y.copy().values.reshape(-1, 1)).toarray()
+            #     self.encoders['target'] = le
+        return np.concatenate([X_cat,new_X_num,X_bool],axis=1),new_y,num_pars
+        
+    def postprocess(self,y,params,type_num,type_cat):
+        if self.task == 'regression':
+            if type_num == 'min_max':
+                y_min = params['y_min']
+                y_max = params['y_max']
+                new_y = y * (y_max - y_min) + y_min
+                
+            elif type_num == 'standard':
+                y_mean = params['y_mean']
+                y_std = params['y_std']
+                new_y = (y * y_std) + y_mean
+
+        elif self.task == 'multi_classification' or self.task == 'binary_classification':
+            if type_cat == 'label':
+                le = self.encoders['target']
+                new_y= le.inverse_transform(y)
+
+            elif type_cat == 'one_hot':
+                le = self.encoders['target']
+                new_y = le.inverse_transform(y.reshape(-1, 1))
+        return new_y
+    def evaluate(self,y_true,y_pred):
+        if self.task == 'multi_classification':
+            score = f1_score(y_true=y_true,y_pred=y_pred,average='weighted')
+        elif self.task == 'binary_classification':
+            score = f1_score(y_true=y_true,y_pred=y_pred)
+        elif self.task == 'regression':
+            score = r2_score(y_true=y_true,y_pred=y_pred)
+        return score
+        
+    def train(self,trial):
+        if self.task == 'regression':
+            algorithms_list = self.ml_algorithms[self.ml_algorithms.regression == 1]['algorithm'].tolist()
+            ml_algorithm = trial.suggest_categorical('ml_algorithm', algorithms_list)
+            ml_algorithm_type = self.ml_algorithms[self.ml_algorithms.algorithm==ml_algorithm]['type'].item()
+        elif self.task == 'binary_classification':
+            algorithms_list = self.ml_algorithms[self.ml_algorithms.binary_classification == 1]['algorithm'].tolist()
+            ml_algorithm = trial.suggest_categorical('ml_algorithm', algorithms_list)
+            ml_algorithm_type = self.ml_algorithms[self.ml_algorithms.algorithm==ml_algorithm]['type'].item()
+        elif self.task == 'multi_classification':
+            algorithms_list = self.ml_algorithms[self.ml_algorithms.multi_classification == 1]['algorithm'].tolist()
+            ml_algorithm = trial.suggest_categorical('ml_algorithm', algorithms_list)
+            ml_algorithm_type = self.ml_algorithms[self.ml_algorithms.algorithm==ml_algorithm]['type'].item()
+        if ml_algorithm_type in ['linear','svm','knn']:
+            type_cat = 'one_hot'
+        else:
+            type_cat = trial.suggest_categorical('type_cat', ['one_hot','label'])
+        type_num = trial.suggest_categorical('type_num', ['min_max','standard'])
+        X,y,pars = self.preprocess(type_num,type_cat)
+        X = X[:int(X.shape[0]/4),:]
+        y = y[:int(y.shape[0]/4)]
+        parameters = self.ml_algorithms_parameters[ml_algorithm]
+        trial_parameters = {}
+        for key,val in parameters.items():
+            if key == 'n_estimators':
+                trial_parameters[key] = trial.suggest_int(key,val[0],val[1])
+                continue
+            if key == 'n_jobs':
+                trial_parameters[key] = val
+                continue
+            if ml_algorithm == 'TweedieRegressor' and type_num=='standard' and key=='power':
+                trial_parameters[key] = 0
+                continue
+            if isinstance(val[0],bool):
+                trial_parameters[key] = trial.suggest_categorical(key,val)
+            elif isinstance(val[0],int):
+                trial_parameters[key] = trial.suggest_int(key,val[0],val[1])
+            elif isinstance(val[0],float):
+                trial_parameters[key] = trial.suggest_float(key,val[0],val[1])
+            else:
+                trial_parameters[key] = trial.suggest_categorical(key,val)
+        model = eval(ml_algorithm)
+        model = model(**trial_parameters)
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        model.fit(X_train,y_train)
+        y_pred = model.predict(X_test)
+        y_pred = self.postprocess(y_pred,pars,type_num,type_cat)
+        y_test = self.postprocess(y_test,pars,type_num,type_cat)
+        score = self.evaluate(y_pred=y_pred,y_true=y_test)
+        return score
+    def tune(self,n_trials):
+        logging.info(f'The optimization phase started')
+        study = optuna.create_study(direction='maximize')
+        study.optimize(self.train, n_trials=n_trials,show_progress_bar=True,gc_after_trial=True)
+        self.best_trial = study.best_trial
+        self.best_params = study.best_params
+        self.score = study.best_value
+        logging.info(f'The optimized model achieved {self.score} score')
+        logging.info(f'The fitting phase started')
+        temp_parameters = self.best_params
+        ml_algorithm = temp_parameters['ml_algorithm']
+        ml_algorithm_type = self.ml_algorithms[self.ml_algorithms.algorithm==ml_algorithm]['type'].item()
+        if ml_algorithm_type in ['linear','svm','knn']:
+            self.type_cat = 'one_hot'
+        else:
+            self.type_cat = temp_parameters['type_cat']
+            del temp_parameters['type_cat']
+        self.type_num = temp_parameters['type_num']
+        del temp_parameters['type_num']
+        del temp_parameters['ml_algorithm']
+    
+        X,y,pars = self.preprocess(self.type_num,self.type_cat)
+        self.numarical_preprocessing_parameters = pars
+        model = eval(ml_algorithm)
+        model = model(**temp_parameters)
+        model.fit(X,y)
+        self.model = model
+        now = datetime.now().strftime("%m-%d-%Y_%H:%M:%S")
+        pickle.dump(self.model, open(f"{now}_model.pkl", 'wb'))
+        logging.info(f'The model has been saved successfuly, model path is {now}_model.pkl')
+
+
+class Module():
+    def __init__(self,automl:AutoML):
+        self.preprocessing_parameters = automl.numarical_preprocessing_parameters
+        self.model = automl.model
+        self.features_cat = automl.features_cat
+        self.features_num = automl.features_num
+        self.features_bool = automl.features_bool
+        self.features_date = automl.features_date
+        self.encoders = automl.encoders
+        self.type_num = automl.type_num
+        self.type_cat = automl.type_cat
+        self.task = automl.task
+    
+    def predict(self,data):
+        for col in tqdm(self.features_date ):
+            data[col+'_'+'day_of_year'] = data[col].dt.day_of_year
+            data[col+'_'+'quarter'] = data[col].dt.quarter
+            data[col+'_'+'day_of_week'] = data[col].dt.day_of_week 
+            data[col+'_'+'days_in_month'] = data[col].dt.days_in_month 
+            data[col+'_'+'day'] = data[col].dt.day
+            data[col+'_'+'month'] = data[col].dt.month
+            data[col+'_'+'year'] = data[col].dt.year
+            data[col+'_'+'hour'] = data[col].dt.hour
+            data[col+'_'+'day_of_year'+'_sin'] = (np.pi *data[col+'_'+'day_of_year'] / 183).apply(lambda x:np.sin(x))
+            data[col+'_'+'hour'+'_sin'] = (np.pi *data[col+'_'+'hour'] / 12).apply(lambda x:np.sin(x))
+        
+        for col in self.features_bool:
+            data[col] = data[col].map(self.encoders[col])
+
+        X_cat = data[self.features_cat].copy()
+        X_num = data[self.features_num].copy()
+        X_bool = data[self.features_bool].copy().values
+        if self.type_num == 'min_max':
+            X_min = self.preprocessing_parameters['X_min']
+            X_max = self.preprocessing_parameters['X_max']
+            new_X_num = (X_num - X_min)/(X_max - X_min)
+  
+        elif self.type_num == 'standard':
+            X_mean = self.preprocessing_parameters['X_mean']
+            X_std = self.preprocessing_parameters['X_std']
+            new_X_num = (X_num - X_mean)/X_std
+    
+        else:
+            raise RuntimeError("wrong preprocessing type")
+            
+        if self.type_cat == 'label':
+            for col in self.features_cat:
+                le = self.encoders[col]
+                X_cat.loc[:,col] = le.transform(X_cat[col])
+
+            X_cat = X_cat.values
+       
+        elif self.type_cat == 'one_hot':
+            one_hots = []
+            for col in self.features_cat:
+                le = self.encoders[col]
+                one_hots.append(le.transform(X_cat[col].values.reshape(-1, 1)).toarray())
+            X_cat = np.concatenate(one_hots,axis=1)
+        else:
+            raise RuntimeError("wrong preprocessing type")
+        input_data = np.concatenate([X_cat,new_X_num,X_bool],axis=1)
+        output = self.model.predict(input_data)
+        if self.task == 'regression':
+            if self.type_num == 'min_max':
+                y_min = self.preprocessing_parameters['y_min']
+                y_max = self.preprocessing_parameters['y_max']
+                new_output = (output - y_min)/(y_max - y_min)
+                
+            elif self.type_num == 'standard':
+                y_mean = self.preprocessing_parameters['y_mean']
+                y_std = self.preprocessing_parameters['y_std']
+                new_output = (output- y_mean)/y_std
+
+        elif self.task == 'multi_classification' or self.task == 'binary_classification':
+            if self.type_cat == 'label':
+                le = self.encoders['target']
+                new_output = le.transform(output)
+
+            elif self.type_cat == 'one_hot':
+                le = self.encoders['target']
+                new_output = le.transform(output.reshape(-1, 1))
+
+        return new_output
