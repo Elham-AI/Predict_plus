@@ -4,6 +4,7 @@ import numpy as np
 import lightgbm as lgb
 from tqdm import tqdm
 import logging
+import os
 from datetime import timedelta
 from sklearn.model_selection import KFold
 from sklearn.model_selection import train_test_split
@@ -104,6 +105,10 @@ class AutoML:
         cols_nunique = self.data[self.features_num].nunique()
         cols_nunique_bool = cols_nunique[cols_nunique==2]
         for col in tqdm(cols_nunique_bool.index):
+            self.encoders[col] = {}
+            uniques = list(self.data[col].unique())
+            for i,j in enumerate(uniques):
+                self.encoders[col][j] = bool(i)
             self.data[col] = self.data[col].astype(bool)
             self.features_num.remove(col)
             self.features_bool.append(col)
@@ -318,7 +323,7 @@ class AutoML:
     def tune(self,n_trials):
         logging.info(f'The optimization phase started')
         study = optuna.create_study(direction='maximize')
-        study.optimize(self.train, n_trials=n_trials,show_progress_bar=True,gc_after_trial=True)
+        study.optimize(self.train, n_trials=n_trials,show_progress_bar=True,gc_after_trial=True,n_jobs=-1,)
         self.best_trial = study.best_trial
         self.best_params = study.best_params
         self.score = study.best_value
@@ -343,7 +348,9 @@ class AutoML:
         model.fit(X,y)
         self.model = model
         now = datetime.now().strftime("%m-%d-%Y_%H:%M:%S")
-        pickle.dump(self.model, open(f"{now}_model.pkl", 'wb'))
+        if not os.path.exists("Models"):
+            os.mkdir("Models")
+        pickle.dump(self.model, open(f"Models/{now}_model.pkl", 'wb'))
         logging.info(f'The model has been saved successfuly, model path is {now}_model.pkl')
 
 
@@ -376,6 +383,11 @@ class Module():
         for col in self.features_bool:
             data[col] = data[col].map(self.encoders[col])
 
+        # Fill nan columns
+        data[self.features_cat] = data[self.features_cat].fillna('UNK')
+        data[self.features_num] = data[self.features_num].fillna(0)
+        data[self.features_bool] = data[self.features_bool].fillna(False)
+
         X_cat = data[self.features_cat].copy()
         X_num = data[self.features_num].copy()
         X_bool = data[self.features_bool].copy().values
@@ -403,6 +415,7 @@ class Module():
             one_hots = []
             for col in self.features_cat:
                 le = self.encoders[col]
+                print(X_cat[col])
                 one_hots.append(le.transform(X_cat[col].values.reshape(-1, 1)).toarray())
             X_cat = np.concatenate(one_hots,axis=1)
         else:

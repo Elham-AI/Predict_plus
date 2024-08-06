@@ -33,7 +33,7 @@
     "SGDClassifier": {"loss": ["hinge", "log", "modified_huber"], "max_iter": [100, 300]},
     "LinearRegression": {"fit_intercept": [true, false],"n_jobs":-1},
     "Ridge": {"alpha": [0.01, 10]},
-    "SGDRegressor": {"loss": ["squared_loss", "huber", "epsilon_insensitive"], "max_iter": [100, 300]},
+    "SGDRegressor": {"loss": ["squared_error", "huber", "squared_epsilon_insensitive", "epsilon_insensitive"], "max_iter": [100, 300]},
     "ElasticNet": {"alpha": [0.01, 10], "l1_ratio": [0.1, 0.9]},
     "TweedieRegressor": {"power": [0, 2], "alpha": [0.01, 10]}
 }
