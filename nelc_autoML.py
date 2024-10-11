@@ -1,7 +1,7 @@
 import optuna
 import pandas as pd
 import numpy as np
-import lightgbm as lgb
+# import lightgbm as lgb
 from tqdm import tqdm
 import logging
 import os
@@ -323,7 +323,7 @@ class AutoML:
     def tune(self,n_trials):
         logging.info(f'The optimization phase started')
         study = optuna.create_study(direction='maximize')
-        study.optimize(self.train, n_trials=n_trials,show_progress_bar=True,gc_after_trial=True,n_jobs=-1,)
+        study.optimize(self.train, n_trials=n_trials,show_progress_bar=True,gc_after_trial=True,)
         self.best_trial = study.best_trial
         self.best_params = study.best_params
         self.score = study.best_value
