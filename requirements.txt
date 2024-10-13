@@ -52,3 +52,4 @@ tzdata==2024.1
 urllib3==2.2.2
 watchdog==4.0.1
 lightgbm
+docker
