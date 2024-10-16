@@ -1,7 +1,7 @@
 import optuna
 import pandas as pd
 import numpy as np
-import lightgbm as lgb
+from lightgbm import *
 from tqdm import tqdm
 import logging
 import gc
