@@ -6,15 +6,20 @@ import time
 import shutil
 from streamlit_navigation_bar import st_navbar
 import subprocess
-
+from docker_utils import *
 os.makedirs('Models',exist_ok=True)
 os.makedirs('Deployments',exist_ok=True)
+
+
+st.set_page_config(
+layout="wide",
+)
+
 # Function to train model
 def train_model(df, target_column,training_level):
     tuner = AutoML(data=df,data_preprocessing=True,target_column=target_column,interpretability=1)
     tuner.tune(training_level)
     return tuner
-
 # Function to predict with trained model
 def predict_with_model(model, input_data):
     return model.predict(input_data)
@@ -24,32 +29,61 @@ def train_page():
     if not st.session_state.get('file'):
         st.session_state['file'] = st.sidebar.file_uploader("Upload CSV file", type=["csv"])
         if st.session_state.get('file'):
+            st.session_state['file_updated'] = True
             st.rerun()
     else:
         if st.sidebar.button("Upload another file"):
             st.session_state['file'] = st.sidebar.file_uploader("Upload CSV file", type=["csv"])
+            if st.session_state.get('file'):
+                st.session_state['file_updated'] = True
+                st.rerun()
     if st.session_state.get('file')  is not None:
-        if not isinstance(st.session_state.get('data'),pd.DataFrame):
+        if st.session_state.get('file_updated'):
             df = pd.read_csv(st.session_state['file'] )
             st.session_state['data'] = df
+            st.session_state['file_updated'] = False
         if isinstance(st.session_state.get('data'),pd.DataFrame):
             st.write("Data Preview", st.session_state['data'].head())
             st.write(f"""The data has {st.session_state['data'].shape[0]} records""")
 
         # Select target column
         target_column = st.sidebar.selectbox("Select Target Column", options=st.session_state['data'].columns,index = st.session_state.get('TARGET_COLUMN_INDEX') if st.session_state.get('TARGET_COLUMN_INDEX') else 0)
+        st.warning("NOTE: Selecting the ID columns will improve model performence")
+        if st.session_state.get('ID_COLUMNS'):
+            if isinstance(st.session_state.get('ID_COLUMNS'),list):
+                cols = list(set(list(st.session_state['data'].columns) + st.session_state.get('ID_COLUMNS')))
+            else:
+                cols = list(set(list(st.session_state['data'].columns) + [st.session_state.get('ID_COLUMNS')]))
+        else:
+            cols = list(st.session_state['data'].columns)
+        id_columns = st.sidebar.multiselect("Select ID columns", options=cols,default = st.session_state.get('ID_COLUMNS') if st.session_state.get('ID_COLUMNS') else None)
+        st.session_state['ID_COLUMNS'] = id_columns
         st.session_state['TARGET_COLUMN_INDEX'] = list(st.session_state['data'].columns).index(target_column)
         training_level = st.sidebar.number_input(f"Training level",max_value=10000,min_value=2,value=st.session_state.get('TRAINING_LEVEL') if st.session_state.get('TRAINING_LEVEL') else 500)
         st.session_state['TRAINING_LEVEL'] = training_level
         
         # Train model
         if st.sidebar.button("Train Model"):
+            if not set(st.session_state['ID_COLUMNS']).difference(list(st.session_state['data'].columns)):
+                st.session_state['data'] = st.session_state['data'].drop(columns=st.session_state['ID_COLUMNS'])
+                st.session_state['TARGET_COLUMN_INDEX'] = list(st.session_state['data'].columns).index(target_column)
             st.markdown("---")
             start_time = time.time()
             st.error("If you leave the page you will lose the training progress, so please do not leave the page until the training is finished")
-            with st.spinner('Training ... !'):       
-                tuner = train_model(st.session_state['data'], target_column,training_level)
-            st.warning(f"The training elapsed time: {(round(time.time()-start_time)/60)} Minutes")
+            progress_text = "Training in progress {p}%. Please wait."
+            progress_bar = st.progress(0, text=progress_text.format(p=0))
+            tuner = AutoML(data=st.session_state['data'],data_preprocessing=True,target_column=target_column,interpretability=1)
+            tuner.init_study()
+            print("study init")
+            for i in tuner.optimize(n_trials=training_level):
+                print("start")
+                time.sleep(0.01)
+                percent_complete = (i+1)/training_level
+                progress_bar.progress(percent_complete, text=progress_text.format(p=round(percent_complete*100,ndigits=2)))
+            fig = tuner.final_training()
+            st.subheader("Training visualization")
+            st.plotly_chart(fig)
+            st.warning(f"The training elapsed time: {(round(round(time.time()-start_time)/60,ndigits=2))} Minutes")
             st.success(f"Model trained with score: {tuner.score}")
             dates = tuner.features_date
             st.session_state['DATES'] = dates
@@ -125,20 +159,10 @@ def train_page():
                             shutil.copyfile(os.path.join('Models',f"{model_name}_model.pkl"), os.path.join(dist,f"{model_name}_model.pkl"))
                             shutil.copyfile(os.path.join('Models',f"{model_name}_tuner.pkl"), os.path.join(dist,f"{model_name}_tuner.pkl"))
                             shutil.copyfile('nelc_autoML.py', os.path.join(dist,'nelc_autoML.py'))
-                            command = ["sudo","docker", "build", "-t", f"{model_name}","."]
-                            # password = "user@123"
-                            # Start the Docker command in the background
-                            process = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,cwd=dist)
-                            # stdout, stderr = process.communicate(input=password + '\n')
-                            # stdout, stderr = process.communicate()
-
-                            if process.returncode == 0:
-                                st.success(f"Docker image built successfully")
-                                st.session_state['DEPLOYED'] = True
-                                print(process.stdout)
-                            else:
-                                st.error("Failed to build Docker image")
-                                print(process.stderr)
+                            image_id = build_image(path=dist,tag=model_name)
+                            run_container(image=image_id,ports={'8000/tcp': 8000})
+                            st.success(f"Docker image built successfully")
+                            st.session_state['DEPLOYED'] = True
                         else:
                             st.error("Please enter the model name to deploy")
 
@@ -157,56 +181,63 @@ def home_page():
 
 def deployed_page():
     st.header("Your deployed models")
-    deployed_models = os.listdir('Deployments')
-    df = pd.DataFrame({"Model Name":deployed_models})
-    df['Status'] = 'deployed'
-    df['Version'] = 1
-    st.markdown(df.style.hide(axis="index").to_html(), unsafe_allow_html=True)
-    st.subheader("Make action")
-    model_name = st.selectbox("Model name",options=deployed_models)
+    images, containers = get_images_and_containers()
+    images = images[images['REPOSITORY'] != 'python']
+    if not images.empty:
+        deployed_models = os.listdir('Deployments') 
+        images['IMAGE'] = images['REPOSITORY']+":"+images['TAG']
+        df = containers.merge(images,on='IMAGE',how='left',suffixes=('_CONTAINER','_IMAGE'))
+        not_built_models = set(deployed_models).difference(images['REPOSITORY'].tolist())
+        deleted_models = set(images['REPOSITORY'].tolist()).difference(deployed_models)
+        st.markdown(df.style.hide(axis="index").to_html(), unsafe_allow_html=True)
+        st.subheader("Make action")
+         
+        model_name = st.selectbox("Model name",options=images['IMAGE'].tolist())
 
-    if st.button("Stop") and model_name:
-        st.success("The model is stopped")
+        stop = st.button("Stop") 
+        start = st.button("Start")
+        delete = st.button("Delete")
 
-    elif st.button("Run") and model_name: 
-        with st.spinner(""):
-            command = ["sudo","docker", "run","--name", model_name,"-p","8000:8000","-d",model_name]
-            # Start the Docker command in the background
-            process = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,cwd=os.path.join('Deployments',model_name))
-            # stdout, stderr = process.communicate()
 
-            if process.returncode == 0:
-                print("Docker image running successfully:\n", process.stdout)
+        if stop and model_name:
+            with st.spinner(""):
+                container_ids = df[df['IMAGE']==model_name]['CONTAINER ID'].tolist()
+                for container_id in container_ids:
+                    stop_container(container_id=container_id)
+                st.success("The model is stopped")
+                time.sleep(1)
                 st.rerun()
+
+        elif start and model_name: 
+            with st.spinner(""):
+                container_ids = df[df['IMAGE']==model_name]['CONTAINER ID'].tolist()
+                for container_id in container_ids:
+                    start_container(container_id=container_id)
                 st.success("The model is running")
-            else:
-                print("Failed to build Docker image:\n", process.stderr)
-        
-    elif st.button("Delete") and model_name:
-        with st.spinner(""):
-            
-            command = ["sudo","docker", "rm",model_name]
-            # Start the Docker command in the background
-            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,cwd=os.path.join('Deployments',model_name))
-            stdout, stderr = process.communicate()
-            command = ["sudo","docker", "rmi",model_name]
-            # Start the Docker command in the background
-            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,cwd=os.path.join('Deployments',model_name))
-            stdout, stderr = process.communicate()
-            shutil.rmtree(os.path.join('Deployments',model_name))
-            os.remove(os.path.join('Models',f"{model_name}_model.pkl"))
-            os.remove(os.path.join('Models',f"{model_name}_tuner.pkl"))
-            if process.returncode == 0:
-                print("Docker image deleted successfully:\n", stdout)
+                time.sleep(1)
                 st.rerun()
+        elif delete and model_name:
+            with st.spinner(""):
+                container_ids = df[df['IMAGE']==model_name]['CONTAINER ID'].tolist()
+                for container_id in container_ids:
+                    delete_container(container_id)
+                delete_image(model_name)
+                shutil.rmtree(os.path.join('Deployments',model_name.split(':')[0]))
+                os.remove(os.path.join('Models',f"""{model_name.split(':')[0]}_model.pkl"""))
+                os.remove(os.path.join('Models',f"""{model_name.split(':')[0]}_tuner.pkl"""))
                 st.success("The model is deleted")
-            else:
-                print("Failed to build Docker image:\n", stderr)
-    if model_name:
-        st.divider()
-        with open(os.path.join('Deployments',model_name,'README.md'),'r') as f:
-            file_content = f.read()
-        st.markdown(file_content)
+                time.sleep(1)
+                st.rerun()
+        if model_name:
+            st.divider()
+            with open(os.path.join('Deployments',model_name.split(':')[0],'README.md'),'r') as f:
+                file_content = f.read()
+            st.markdown(file_content)
+    else:
+        images = images.assign(IMAGE=None)
+        st.warning("You do not have deployed models")
+
+    
         
         
 

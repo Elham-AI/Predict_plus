@@ -1,9 +1,10 @@
 import optuna
 import pandas as pd
 import numpy as np
-# import lightgbm as lgb
+from lightgbm import *
 from tqdm import tqdm
 import logging
+import gc
 import os
 from datetime import timedelta
 from sklearn.model_selection import KFold
@@ -16,11 +17,13 @@ from sklearn.tree import *
 from sklearn.ensemble import *
 from sklearn.svm import *
 from sklearn.neighbors import *
-import pickle
+# import pickle
+import dill as pickle
 import warnings
 from sklearn.preprocessing import LabelEncoder,OneHotEncoder
 import json
 from datetime import datetime
+import optuna.visualization as vis
 # logging.basicConfig(filename='logs.log', filemode='a', format='%(asctime)s - %(levelname)s : %(message)s', level=logging.DEBUG)
 def log_message(level, message):
     if level.lower() == 'info':
@@ -128,7 +131,7 @@ class AutoML:
 
         # drop ids columns and columns with a lot of unique values
         self.data = self.data.drop(columns=list(cols_nunique_id.index)+list(cols_nunique_alot.index))
-        for col in list(cols_nunique_id.index)+list(cols_nunique_alot.index):
+        for col in set(list(cols_nunique_id.index)+list(cols_nunique_alot.index)):
             self.features_cat.remove(col)
             
         # Add date features
@@ -302,17 +305,24 @@ class AutoML:
                 type_cat = 'one_hot'
             else:
                 type_cat = trial.suggest_categorical('type_cat', ['one_hot','label'])
-            type_num = trial.suggest_categorical('type_num', ['min_max','standard'])
+
+            if ml_algorithm in ['ComplementNB','MultinomialNB','CategoricalNB']:
+                type_num = 'min_max'
+            else:
+                type_num = trial.suggest_categorical('type_num', ['min_max','standard'])
             X,y,pars = self.preprocess(type_num,type_cat)
-            if X.shape[0] > 10000:
+            if X.shape[0] > 5000:
                 log_message('info','The data is huge, we will train on a subset of the data')
-                n = 10000
+                n = 5000
                 indexes = np.random.choice(X.shape[0], n, replace=False)  
                 X = X[indexes,:]
                 y = y[indexes]
             parameters = self.ml_algorithms_parameters[ml_algorithm]
             trial_parameters = {}
             for key,val in parameters.items():
+                if key == 'oob_score' and trial_parameters['bootstrap']==False:
+                    trial_parameters[key] = False  
+                    continue                                  
                 if key == 'n_jobs':
                     trial_parameters[key] = val
                     continue
@@ -320,22 +330,25 @@ class AutoML:
                     trial_parameters[key] = 0
                     continue
                 if ml_algorithm == 'ExtraTreesRegressor' and type_num == 'standard' and key == 'criterion':
-                    trial_parameters[key] = trial.suggest_categorical(key,["squared_error", "absolute_error", "friedman_mse"])
+                    trial_parameters[key] = trial.suggest_categorical(ml_algorithm+"_"+key,["squared_error", "absolute_error", "friedman_mse"])
                     continue
                 if isinstance(val[0],bool):
-                    trial_parameters[key] = trial.suggest_categorical(key,val)
+                    trial_parameters[key] = trial.suggest_categorical(ml_algorithm+"_"+key,val)
                 elif isinstance(val[0],int):
-                    trial_parameters[key] = trial.suggest_int(key,val[0],val[1])
+                    trial_parameters[key] = trial.suggest_int(ml_algorithm+"_"+key,val[0],val[1])
                 elif isinstance(val[0],float):
-                    trial_parameters[key] = trial.suggest_float(key,val[0],val[1])
+                    trial_parameters[key] = trial.suggest_float(ml_algorithm+"_"+key,val[0],val[1])
                 else:
-                    trial_parameters[key] = trial.suggest_categorical(key,val)
+                    trial_parameters[key] = trial.suggest_categorical(ml_algorithm+"_"+key,val)
 
 
             model = eval(ml_algorithm)
             model = model(**trial_parameters)
             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42,shuffle=True)
+            print("fit ",ml_algorithm)
+            print(trial_parameters)
             model.fit(X_train,y_train)
+            print("fited ",ml_algorithm)
             y_pred = model.predict(X_test)
             y_pred = self.postprocess(y_pred,pars,type_num,type_cat)
             y_test = self.postprocess(y_test,pars,type_num,type_cat)
@@ -344,19 +357,27 @@ class AutoML:
         except Exception as e:
             log_message('error',e)
             log_message('error',trial_parameters)
-            return -100
-    def tune(self,n_trials):
+            return None
+    def optimize(self,n_trials):
+        for i in range(n_trials):
+            print("ask")
+            trial = self.study.ask()
+            print("train")  # Generate a trial suggestion
+            value = self.train(trial)  # Evaluate the objective function
+            print("tell")
+            self.study.tell(trial, value)
+            print("finish")
+            print("="*10)
+            gc.collect()
+            yield i
+    def init_study(self):
         log_message('debug',f'The optimization phase started')
-        study = optuna.create_study(direction='maximize')
-        study.optimize(self.train, 
-                       n_trials=n_trials,
-                       show_progress_bar=True,
-                       gc_after_trial=True,
-                    #    n_jobs=-1,
-                       )
-        self.best_trial = study.best_trial
-        self.best_params = study.best_params
-        self.score = study.best_value
+        self.study = optuna.create_study(direction='maximize')
+
+    def final_training(self):
+        self.best_trial = self.study.best_trial
+        self.best_params = self.study.best_params
+        self.score = self.study.best_value
         log_message('info',f'The optimized model achieved {self.score} score')
         log_message('debug',f'The fitting phase started')
         temp_parameters = self.best_params
@@ -367,23 +388,32 @@ class AutoML:
         else:
             self.type_cat = temp_parameters['type_cat']
             del temp_parameters['type_cat']
-        self.type_num = temp_parameters['type_num']
-        del temp_parameters['type_num']
+        if ml_algorithm in ['ComplementNB','MultinomialNB','CategoricalNB']:
+            self.type_num = 'min_max'
+        else:
+            self.type_num = temp_parameters['type_num']
+            del temp_parameters['type_num']
         del temp_parameters['ml_algorithm']
-    
+        temp_parameters2 = {}
+        for key,val in temp_parameters.items():
+            temp_parameters2[key.replace(ml_algorithm+"_","").strip()] = val
+        temp_parameters = temp_parameters2
         X,y,pars = self.preprocess(self.type_num,self.type_cat)
         self.numarical_preprocessing_parameters = pars
         model = eval(ml_algorithm)
         model = model(**temp_parameters)
         model.fit(X,y)
         self.model = model
+        return vis.plot_optimization_history(self.study)
         
         
     def save(self,model_name):
         if not os.path.exists("Models"):
             os.mkdir("Models")
-        pickle.dump(self.model, open(f"Models/{model_name}_model.pkl", 'wb'))
-        pickle.dump(self, open(f"Models/{model_name}_tuner.pkl", 'wb'))
+        with open(f"Models/{model_name}_model.pkl", 'wb') as f:
+            pickle.dump(self.model,f)
+        with open(f"Models/{model_name}_tuner.pkl", 'wb') as f:
+            pickle.dump(self,f)
         log_message('debug',f'The model has been saved successfuly, model path is {model_name}_model/tuner.pkl')
 class Module():
     def __init__(self,automl:AutoML):

@@ -7,6 +7,10 @@ WORKDIR /app
 # Copy the requirements.txt file into the container
 COPY requirements.txt .
 
+RUN apt-get update && apt-get install -y --no-install-recommends apt-utils
+RUN apt-get -y install curl
+RUN apt-get install libgomp1
+
 # Install the dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
