@@ -201,8 +201,9 @@ def home_page():
     
     Enjoy the seamless experience of automated machine learning!
     """)
-
-    st.image("faris_ml_create_an_image_of_a_manager_that_thinking_of_a_data_674c193a-ea42-4f37-a1c2-fb7a21d953b8_3.png", caption="Machine Learning Made Simple", use_column_width=True)
+    _,col1,_ = st.columns(3)
+    with col1:
+        st.image("faris_ml_create_an_image_of_a_manager_that_thinking_of_a_data_674c193a-ea42-4f37-a1c2-fb7a21d953b8_3.png", caption="Machine Learning Made Simple", use_column_width=True)
 
 def deployed_page():
     st.header("Your deployed models")

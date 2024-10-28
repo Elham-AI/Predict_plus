@@ -23,6 +23,7 @@ from sklearn.preprocessing import LabelEncoder,OneHotEncoder
 import json
 from datetime import datetime
 import optuna.visualization as vis
+from sklearn.impute import KNNImputer
 # logging.basicConfig(filename='logs.log', filemode='a', format='%(asctime)s - %(levelname)s : %(message)s', level=logging.DEBUG)
 def log_message(level, message):
     if level.lower() == 'info':
@@ -195,13 +196,13 @@ class AutoML:
         X_bool = self.X[self.features_bool].copy().values
         num_pars = {}
         if type_num == 'min_max':
-            X_min = X_num.min(axis=0)
-            X_max = X_num.max(axis=0)
+            X_min = np.nanmin(X_num.values,axis=0)
+            X_max = np.nanmax(X_num.values,axis=0)
             new_X_num = (X_num - X_min)/(X_max - X_min)
             num_pars = {'X_min':X_min,'X_max':X_max}
         elif type_num == 'standard':
-            X_mean = X_num.mean(axis=0)
-            X_std = X_num.std(axis=0)
+            X_mean = np.nanmean(X_num.values,axis=0)
+            X_std = np.nanstd(X_num.values,axis=0)
             new_X_num = (X_num - X_mean)/X_std
             num_pars = {'X_mean':X_mean,'X_std':X_std}
         else:
@@ -218,7 +219,7 @@ class AutoML:
         elif type_cat == 'one_hot':
             one_hots = []
             for col in self.features_cat:
-                le = OneHotEncoder()
+                le = OneHotEncoder(handle_unknown='ignore')
                 le.fit(X_cat[col].values.reshape(-1, 1))
                 one_hots.append(le.transform(X_cat[col].values.reshape(-1, 1)).toarray())
                 self.encoders[col] = le
@@ -256,7 +257,7 @@ class AutoML:
             #     self.encoders['target'] = le
         return np.concatenate([X_cat,new_X_num,X_bool],axis=1),new_y,num_pars
 
-    def missing_values_handler(self,handling_type):
+    def missing_values_handler(self,X,y,handling_type):
         if handling_type=="drop":
             new_data = self.data.dropna()
             if new_data.empty:
@@ -265,28 +266,42 @@ class AutoML:
                 self.data = new_data
                 return
         if handling_type=="target_based_filling":
-            missing_columns = self.data.isna().sum()
+            new_data = self.data.copy()
+            missing_columns = new_data.isna().sum()
             missing_columns = missing_columns[missing_columns>0].index
-            targets = list(self.data[self.target_column].unique())
+            targets = list(new_data[self.target_column].unique())
             for col in missing_columns:
                 for target in targets:
-                    indexes = self.data[self.data[self.target_column]==target][col].index
+                    indexes = new_data[new_data[self.target_column]==target][col].index
                     if not indexes.empty:
                         if col in self.features_num:
-                            col_mean = self.data.loc[indexes,col].mean()
-                            self.data.loc[indexes,col].fillna(col_mean)
-                        elif col in self.features_cat or col in self.features_cat:
-                            maximum_count_col = self.data.loc[indexes,col].value_counts().sort_values().tolist()[0]
-                            self.data.loc[indexes,col].fillna(maximum_count_col)
+                            col_mean = new_data.loc[indexes,col].mean()
+                            new_data.loc[indexes,col] = new_data.loc[indexes,col].fillna(col_mean)
+                        elif col in self.features_cat or col in self.features_date:
+                            maximum_count_col = new_data.loc[indexes,col].value_counts().sort_values().tolist()[0]
+                            new_data.loc[indexes,col] = new_data.loc[indexes,col].fillna(maximum_count_col)
                     else:
                         pass
-            self.data = self.data.dropna()
+            new_data = new_data.dropna()
+            if new_data.empty:
+                handling_type = "KNN"
+            else:
+                self.data = new_data
+        
+        if handling_type == "KNN":
+            new_data = np.concatenate([X,np.expand_dims(y,axis=1)],axis=1)
+            imputer = KNNImputer(n_neighbors=3)
+            new_data = imputer.fit_transform(new_data)
+            new_X = new_data[:,:-1]
+            new_y = new_data[:,-1]
+            return new_X,new_y
+        
         if handling_type=="sampler_filling":
             pass
         if handling_type=="generator_filling":
             pass
     
-    def postprocess(self,y,params,type_num,type_cat):
+    def postprocess(self,y,params,type_num,type_cat,inference):
         if self.task == 'regression':
             if type_num == 'min_max':
                 y_min = params['y_min']
@@ -299,13 +314,18 @@ class AutoML:
                 new_y = (y * y_std) + y_mean
 
         elif self.task == 'multi_classification' or self.task == 'binary_classification':
-            if type_cat == 'label':
-                le = self.encoders['target']
-                new_y= le.inverse_transform(y)
+            if inference:
+                if type_cat == 'label':
+                    le = self.encoders['target']
+                    new_y= le.inverse_transform(y)
 
-            elif type_cat == 'one_hot':
-                le = self.encoders['target']
-                new_y = le.inverse_transform(y.reshape(-1, 1))
+                elif type_cat == 'one_hot':
+                    le = self.encoders['target']
+                    print(y.reshape(-1, 1).shape)
+                    print(y)
+                    new_y = le.inverse_transform(y.reshape(-1, 1).astype(int))
+            else:
+                new_y = y.copy()
         return new_y
     
     def evaluate(self,y_true,y_pred):
@@ -341,9 +361,10 @@ class AutoML:
             else:
                 type_num = trial.suggest_categorical('type_num', ['min_max','standard'])
 
-            handling_type = trial.suggest_categorical('handling_type', ['drop','target_based_filling'])
-            self.missing_values_handler(handling_type=handling_type)
+            handling_type = trial.suggest_categorical('handling_type', ['drop','target_based_filling','KNN'])
+            handling_type = "KNN"
             X,y,pars = self.preprocess(type_num,type_cat)
+            X,y = self.missing_values_handler(X,y,handling_type=handling_type)
             if X.shape[0] > 5000:
                 log_message('info','The data is huge, we will train on a subset of the data')
                 n = 5000
@@ -373,7 +394,6 @@ class AutoML:
                     trial_parameters[key] = trial.suggest_float(ml_algorithm+"_"+key,val[0],val[1])
                 else:
                     trial_parameters[key] = trial.suggest_categorical(ml_algorithm+"_"+key,val)
-
             model = eval(ml_algorithm)
             model = model(**trial_parameters)
             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42,shuffle=True)
@@ -382,9 +402,10 @@ class AutoML:
             model.fit(X_train,y_train)
             print("fited ",ml_algorithm)
             y_pred = model.predict(X_test)
-            y_pred = self.postprocess(y_pred,pars,type_num,type_cat)
-            y_test = self.postprocess(y_test,pars,type_num,type_cat)
+            y_pred = self.postprocess(y_pred,pars,type_num,type_cat,False)
+            y_test = self.postprocess(y_test,pars,type_num,type_cat,False)
             score = self.evaluate(y_pred=y_pred,y_true=y_test)
+            print(score)
             return score
         except Exception as e:
             log_message('error',e)
