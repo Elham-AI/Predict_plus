@@ -13,6 +13,7 @@ os.makedirs('Deployments',exist_ok=True)
 
 st.set_page_config(
 layout="wide",
+page_icon="logo.svg"
 )
 
 # Function to train model
@@ -20,9 +21,11 @@ def train_model(df, target_column,training_level):
     tuner = AutoML(data=df,data_preprocessing=True,target_column=target_column,interpretability=1)
     tuner.tune(training_level)
     return tuner
+
 # Function to predict with trained model
 def predict_with_model(model, input_data):
     return model.predict(input_data)
+
 # Main Streamlit app
 def train_page():
     st.sidebar.title('Auto ML Tool')
@@ -177,13 +180,35 @@ def train_page():
     """)
 
 def home_page():
-    st.header("Welcome to the auto-ML tool")
+    _,col,_ = st.columns(3)
+    with col:
+        st.image("logo.svg")
+    st.title("Welcome to the Auto ML Tool!")
+    st.markdown("""
+    ### Automate Your Machine Learning Journey
+    This Auto ML tool streamlines the process of training, tuning, and deploying machine learning models. With just a few clicks, you can go from data to predictions without needing extensive ML expertise.
+
+    ### Key Features
+    - **Data Upload & Selection**: Upload your data and choose your target column.
+    - **Automated Model Tuning**: Select the training level and let the tool find the best model for your data.
+    - **Model Testing & Prediction**: Input test data to see real-time predictions.
+    - **Deployment as an API**: Deploy your trained models as Dockerized APIs with a single click, and manage them easily.
+
+    ### How to Get Started
+    1. Go to the **Train and Deploy** page to upload your dataset.
+    2. Select your target column and ID columns, then specify the training level.
+    3. Train the model, test it, and deploy it as needed.
+    
+    Enjoy the seamless experience of automated machine learning!
+    """)
+
+    st.image("faris_ml_create_an_image_of_a_manager_that_thinking_of_a_data_674c193a-ea42-4f37-a1c2-fb7a21d953b8_3.png", caption="Machine Learning Made Simple", use_column_width=True)
 
 def deployed_page():
     st.header("Your deployed models")
     images, containers = get_images_and_containers()
     images = images[images['REPOSITORY'] != 'python']
-    if not images.empty:
+    if not images.empty and not containers.empty:
         deployed_models = os.listdir('Deployments') 
         images['IMAGE'] = images['REPOSITORY']+":"+images['TAG']
         df = containers.merge(images,on='IMAGE',how='left',suffixes=('_CONTAINER','_IMAGE'))
@@ -193,12 +218,22 @@ def deployed_page():
         st.subheader("Make action")
          
         model_name = st.selectbox("Model name",options=images['IMAGE'].tolist())
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            _,sub_col1,_ = st.columns(3)
+            with sub_col1:
+                stop = st.button("Stop") 
+            
+        with col2:
+            _,sub_col2,_ = st.columns(3)
+            with sub_col2:
+                start = st.button("Start")
 
-        stop = st.button("Stop") 
-        start = st.button("Start")
-        delete = st.button("Delete")
-
-
+        with col3:
+            _,sub_col3,_ = st.columns(3)
+            with sub_col3:
+                delete = st.button("Delete")   
+        
         if stop and model_name:
             with st.spinner(""):
                 container_ids = df[df['IMAGE']==model_name]['CONTAINER ID'].tolist()
@@ -230,19 +265,17 @@ def deployed_page():
                 st.rerun()
         if model_name:
             st.divider()
-            with open(os.path.join('Deployments',model_name.split(':')[0],'README.md'),'r') as f:
-                file_content = f.read()
-            st.markdown(file_content)
+            try:
+                with open(os.path.join('Deployments',model_name.split(':')[0],'README.md'),'r') as f:
+                    file_content = f.read()
+                st.markdown(file_content)
+            except FileNotFoundError as e:
+                st.warning("There is no documentaion for this container !!")
     else:
         images = images.assign(IMAGE=None)
         st.warning("You do not have deployed models")
 
-    
-        
-        
-
-
-page = st_navbar(["Home", "Train and deploy", "Deployed models"])
+page = st_navbar(["Home", "Train and deploy", "Deployed models"],logo_path="logo.svg")
 pages = {
     "Home":home_page,
     "Train and deploy":train_page,

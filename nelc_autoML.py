@@ -17,7 +17,6 @@ from sklearn.tree import *
 from sklearn.ensemble import *
 from sklearn.svm import *
 from sklearn.neighbors import *
-# import pickle
 import dill as pickle
 import warnings
 from sklearn.preprocessing import LabelEncoder,OneHotEncoder
@@ -68,10 +67,7 @@ class AutoML:
             self.features_bool.remove(self.target_column)
         else:
             self.features_cat.remove(self.target_column)
-        self.X = self.data.drop(columns=self.target_column)
-        self.y = self.data[self.target_column]
-        
-        
+            
     def refine_the_data(self):
         log_message('debug','Start casting to numarical features')
         # from catagorical data to numarical
@@ -171,9 +167,9 @@ class AutoML:
         self.data = self.data.drop(columns=self.features_date)
 
         # Fill nan columns
-        self.data[self.features_cat] = self.data[self.features_cat].fillna('UNK')
-        self.data[self.features_num] = self.data[self.features_num].fillna(0)
-        self.data[self.features_bool] = self.data[self.features_bool].fillna(False)
+        # self.data[self.features_cat] = self.data[self.features_cat].fillna('UNK')
+        # self.data[self.features_num] = self.data[self.features_num].fillna(0)
+        # self.data[self.features_bool] = self.data[self.features_bool].fillna(False)
         
         # Drop constant columns
         constant_columns = list(self.data[self.features_num].std(axis=0)[self.data[self.features_num].std(axis=0)==0].index)
@@ -190,7 +186,10 @@ class AutoML:
         elif str(self.data[self.target_column].dtype) in ['float64','float32','int64','int32']:
             self.task = 'regression'
         log_message('debug',f'The selected task is {self.task}')
+    
     def preprocess(self,type_num,type_cat):
+        self.X = self.data.drop(columns=self.target_column)
+        self.y = self.data[self.target_column]
         X_cat = self.X[self.features_cat].copy()
         X_num = self.X[self.features_num].copy()
         X_bool = self.X[self.features_bool].copy().values
@@ -256,7 +255,37 @@ class AutoML:
             #     new_y = le.transform(self.y.copy().values.reshape(-1, 1)).toarray()
             #     self.encoders['target'] = le
         return np.concatenate([X_cat,new_X_num,X_bool],axis=1),new_y,num_pars
-        
+
+    def missing_values_handler(self,handling_type):
+        if handling_type=="drop":
+            new_data = self.data.dropna()
+            if new_data.empty:
+                handling_type = "target_based_filling"
+            else:
+                self.data = new_data
+                return
+        if handling_type=="target_based_filling":
+            missing_columns = self.data.isna().sum()
+            missing_columns = missing_columns[missing_columns>0].index
+            targets = list(self.data[self.target_column].unique())
+            for col in missing_columns:
+                for target in targets:
+                    indexes = self.data[self.data[self.target_column]==target][col].index
+                    if not indexes.empty:
+                        if col in self.features_num:
+                            col_mean = self.data.loc[indexes,col].mean()
+                            self.data.loc[indexes,col].fillna(col_mean)
+                        elif col in self.features_cat or col in self.features_cat:
+                            maximum_count_col = self.data.loc[indexes,col].value_counts().sort_values().tolist()[0]
+                            self.data.loc[indexes,col].fillna(maximum_count_col)
+                    else:
+                        pass
+            self.data = self.data.dropna()
+        if handling_type=="sampler_filling":
+            pass
+        if handling_type=="generator_filling":
+            pass
+    
     def postprocess(self,y,params,type_num,type_cat):
         if self.task == 'regression':
             if type_num == 'min_max':
@@ -278,6 +307,7 @@ class AutoML:
                 le = self.encoders['target']
                 new_y = le.inverse_transform(y.reshape(-1, 1))
         return new_y
+    
     def evaluate(self,y_true,y_pred):
         if self.task == 'multi_classification':
             score = f1_score(y_true=y_true,y_pred=y_pred,average='weighted')
@@ -310,6 +340,9 @@ class AutoML:
                 type_num = 'min_max'
             else:
                 type_num = trial.suggest_categorical('type_num', ['min_max','standard'])
+
+            handling_type = trial.suggest_categorical('handling_type', ['drop','target_based_filling'])
+            self.missing_values_handler(handling_type=handling_type)
             X,y,pars = self.preprocess(type_num,type_cat)
             if X.shape[0] > 5000:
                 log_message('info','The data is huge, we will train on a subset of the data')
@@ -341,7 +374,6 @@ class AutoML:
                 else:
                     trial_parameters[key] = trial.suggest_categorical(ml_algorithm+"_"+key,val)
 
-
             model = eval(ml_algorithm)
             model = model(**trial_parameters)
             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42,shuffle=True)
@@ -358,6 +390,7 @@ class AutoML:
             log_message('error',e)
             log_message('error',trial_parameters)
             return None
+    
     def optimize(self,n_trials):
         for i in range(n_trials):
             print("ask")
@@ -370,6 +403,7 @@ class AutoML:
             print("="*10)
             gc.collect()
             yield i
+    
     def init_study(self):
         log_message('debug',f'The optimization phase started')
         self.study = optuna.create_study(direction='maximize')
@@ -394,6 +428,7 @@ class AutoML:
             self.type_num = temp_parameters['type_num']
             del temp_parameters['type_num']
         del temp_parameters['ml_algorithm']
+        del temp_parameters['handling_type']
         temp_parameters2 = {}
         for key,val in temp_parameters.items():
             temp_parameters2[key.replace(ml_algorithm+"_","").strip()] = val
@@ -405,8 +440,7 @@ class AutoML:
         model.fit(X,y)
         self.model = model
         return vis.plot_optimization_history(self.study)
-        
-        
+           
     def save(self,model_name):
         if not os.path.exists("Models"):
             os.mkdir("Models")
@@ -415,6 +449,7 @@ class AutoML:
         with open(f"Models/{model_name}_tuner.pkl", 'wb') as f:
             pickle.dump(self,f)
         log_message('debug',f'The model has been saved successfuly, model path is {model_name}_model/tuner.pkl')
+
 class Module():
     def __init__(self,automl:AutoML):
         self.preprocessing_parameters = automl.numarical_preprocessing_parameters
