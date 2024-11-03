@@ -17,7 +17,7 @@ layout="wide",
 page_icon="assests/logo-en.svg"
 )
 
-import base64
+#import base64
 
 # @st.cache_data
 # def get_base64_of_bin_file(bin_file):
@@ -350,7 +350,6 @@ def batch_inference_page():
     else:
         st.warning("You do not have deployed models")
 
-
 styles = {
     "nav": {
         "background-color": "rgba(255, 255, 255, 0.2)",  # Semi-transparent white
@@ -399,7 +398,7 @@ options = {
     "fix_shadow": True,
     "use_padding": False,
 }
-page = st_navbar(["Home", "Train and deploy", "Deployed models"],
+page = st_navbar(["Home", "Train and deploy", "Deployed models","Make prediction"],
                  logo_path="assests/logo-en.svg",
                 #  styles=styles,
                 #   options=options,

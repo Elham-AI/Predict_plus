@@ -23,7 +23,7 @@ from sklearn.preprocessing import LabelEncoder,OneHotEncoder
 import json
 from datetime import datetime
 import optuna.visualization as vis
-from sklearn.impute import KNNImputer
+from sklearn.impute import KNNImputer,SimpleImputer
 logging.basicConfig(
     # filename='logs.log', 
     # filemode='a', 
@@ -73,6 +73,7 @@ class AutoML:
             self.features_bool.remove(self.target_column)
         else:
             self.features_cat.remove(self.target_column)
+        self.original_data = self.data
             
     def refine_the_data(self):
         log_message('debug','Start casting to numarical features')
@@ -262,65 +263,25 @@ class AutoML:
                 self.encoders['target'] = le
         return np.concatenate([X_cat,new_X_num,X_bool],axis=1),new_y,num_pars
 
-    def missing_values_handler(self,X,y,handling_type):
-        if handling_type=="drop":
-            new_data = np.concatenate([X,y], axis=1)
-            new_data = new_data[~np.isnan(new_data).any(axis=1)]
-            if new_data.shape[0] == 0:
-                handling_type = "target_based_filling"
-            else:
-                new_X = new_data[:,:-1]
-                new_y = new_data[:,-1]
-                return new_X,new_y
-        if handling_type=="target_based_filling":
-            # Concatenate X and y along the last axis
-            new_data = np.concatenate([X, y], axis=1)
-            
-            # Identify columns with missing values
-            missing_columns = np.any(np.isnan(new_data), axis=0)
-            missing_column_indices = np.where(missing_columns)[0]  # Get indices of columns with NaNs
-            
-            # Identify unique targets in the target column (assuming the target column is the last column in new_data)
-            target_column_index = new_data.shape[1] - 1
-            targets = np.unique(new_data[:, target_column_index][~np.isnan(new_data[:, target_column_index])])
-            
-            for col in missing_column_indices:
-                if col == target_column_index:
-                    continue  # Skip target column in processing
-                
-                for target in targets:
-                    # Find indices where target matches in the target column
-                    target_indices = np.where(new_data[:, target_column_index] == target)[0]
-                    column_data = new_data[target_indices, col]
-                    
-                    # Ignore rows with NaN in the current column
-                    valid_indices = target_indices[~np.isnan(column_data)]
-                    
-                    if valid_indices.size > 0:
-                        col_mean = np.nanmean(column_data)
-                        new_data[target_indices, col] = np.where(np.isnan(new_data[target_indices, col]), col_mean, new_data[target_indices, col])
-        
-            # Drop rows with any remaining NaN values
-            new_data = new_data[~np.isnan(new_data).any(axis=1)]
-            if new_data.shape[0] == 0:
-                handling_type = "KNN"
-            else:
-                new_X = new_data[:,:-1]
-                new_y = new_data[:,-1]
-                return new_X,new_y
-        
-        if handling_type == "KNN":
-            new_data = np.concatenate([X,y],axis=1)
-            imputer = KNNImputer(n_neighbors=3)
-            new_data = imputer.fit_transform(new_data)
-            new_X = new_data[:,:-1]
-            new_y = new_data[:,-1]
-            return new_X,new_y
-        
-        if handling_type=="sampler_filling":
-            pass
-        if handling_type=="generator_filling":
-            pass
+    def missing_values_handler(self,drop,handling_type_num='',handling_type_cat=''):
+        if drop:
+            self.data = self.data.copy().dropna()
+            self.imputer_num = None
+            self.imputer_cat_and_bool = None
+        if handling_type_num != 'KNN' and self.features_num:
+            imputer = SimpleImputer(strategy=handling_type_num)
+            self.data.loc[:,self.features_num] = imputer.fit_transform(self.data.loc[:,self.features_num])
+            self.imputer_num = imputer
+
+        if handling_type_cat and self.features_cat + self.features_bool:
+            imputer = SimpleImputer(strategy=handling_type_cat)
+            self.data.loc[:,self.features_cat + self.features_bool] = imputer.fit_transform(self.data.loc[:,self.features_cat + self.features_bool])
+            self.imputer_cat_and_bool = imputer
+
+        if handling_type_num == 'KNN' and self.features_num:
+            imputer = KNNImputer(n_neighbors=7)
+            self.data.loc[:,self.features_num] = imputer.fit_transform(self.data.loc[:,self.features_num])
+            self.imputer_num = imputer
     
     def postprocess(self,y,params,type_num,type_cat,inference):
         if self.task == 'regression':
@@ -359,6 +320,7 @@ class AutoML:
         return score
         
     def train(self,trial):
+        self.data = self.original_data.copy()
         try:
             if self.task == 'regression':
                 algorithms_list = self.ml_algorithms[self.ml_algorithms.regression == 1]['algorithm'].tolist()
@@ -372,16 +334,17 @@ class AutoML:
                 algorithms_list = self.ml_algorithms[self.ml_algorithms.multi_classification == 1]['algorithm'].tolist()
                 ml_algorithm = trial.suggest_categorical('ml_algorithm', algorithms_list)
                 ml_algorithm_type = self.ml_algorithms[self.ml_algorithms.algorithm==ml_algorithm]['type'].item()
+            
             if ml_algorithm_type in ['linear','svm','knn']:
                 type_cat = 'one_hot'
                 if self.task == 'binary_classification' or self.task == 'multi_classification':
-                    type_cat_target = 'one_hot'
+                    type_cat_target = 'label'
                 else:
                     type_cat_target = None
             else:
                 type_cat = trial.suggest_categorical('type_cat', ['one_hot','label'])
                 if self.task == 'binary_classification' or self.task == 'multi_classification':
-                    type_cat_target = trial.suggest_categorical('type_cat_target', ['one_hot','label'])
+                    type_cat_target = 'label'
                 else:
                     type_cat_target = None
 
@@ -398,14 +361,27 @@ class AutoML:
                 else:
                     type_num_target = None
 
-            handling_type = trial.suggest_categorical('handling_type', ['drop','target_based_filling','KNN'])
-            handling_type = "KNN"
+            if self.data.isnull().sum().sum() > 0:
+                log_message('debug',"Opps!! there are nulls in your data")
+
+                if not self.data.copy().dropna().empty:
+                    handling_type_drop = trial.suggest_categorical('handling_type_drop', [True,False])
+                else:
+                    handling_type_drop = False
+                
+                if not handling_type_drop:
+                    handling_type_num = trial.suggest_categorical('handling_type_num', ['mean','median','most_frequent','KNN'])
+                    handling_type_cat = 'most_frequent'
+                else:
+                    handling_type_num = ''
+                    handling_type_cat = ''
+
+                self.missing_values_handler(handling_type_cat=handling_type_cat,handling_type_num=handling_type_num,drop=handling_type_drop)
+
             X,y,pars = self.preprocess(type_num=type_num,
                                        type_cat=type_cat,
                                        type_cat_target=type_cat_target,
-                                       type_num_target=type_num_target)
-            
-            X,y = self.missing_values_handler(X,y,handling_type=handling_type)
+                                       type_num_target=type_num_target)  
             if X.shape[0] > 5000:
                 log_message('info','The data is huge, we will train on a subset of the data')
                 n = 5000
@@ -415,6 +391,12 @@ class AutoML:
             parameters = self.ml_algorithms_parameters[ml_algorithm]
             trial_parameters = {}
             for key,val in parameters.items():
+                if ml_algorithm == 'GradientBoostingClassifier' and key == 'loss' and self.task == 'multi_classification':
+                    trial_parameters[key] = 'log_loss'
+                    continue
+                if ml_algorithm == 'LinearSVC' and key=='penalty' and trial_parameters['loss'] == 'hinge':
+                    trial_parameters[key] = 'l2'
+                    continue
                 if key == 'oob_score' and trial_parameters['bootstrap']==False:
                     trial_parameters[key] = False  
                     continue                                  
@@ -451,7 +433,7 @@ class AutoML:
         except Exception as e:
             log_message('error',e)
             log_message('error',trial_parameters)
-            return None
+            return 0
     
     def optimize(self,n_trials):
         for i in range(n_trials):
@@ -483,15 +465,14 @@ class AutoML:
         if ml_algorithm_type in ['linear','svm','knn']:
             self.type_cat = 'one_hot'
             if self.task == 'binary_classification' or self.task == 'multi_classification':
-                self.type_cat_target = 'one_hot'
+                self.type_cat_target = 'label'
             else:
                 self.type_cat_target = None
         else:
             self.type_cat = temp_parameters['type_cat']
             del temp_parameters['type_cat']
             if self.task == 'binary_classification' or self.task == 'multi_classification':
-                self.type_cat_target = temp_parameters['type_cat_target']
-                del temp_parameters['type_cat_target']
+                self.type_cat_target = 'label'
             else:
                 self.type_cat_target = None   
             
@@ -515,14 +496,21 @@ class AutoML:
         for key,val in temp_parameters.items():
             temp_parameters2[key.replace(ml_algorithm+"_","").strip()] = val
         temp_parameters = temp_parameters2
+        self.handling_type_num = temp_parameters.get('handling_type_num')
+        self.handling_type_cat = 'most_frequent'
+        self.handling_type_drop = temp_parameters.get('handling_type_drop')
+        if self.handling_type_num:
+            del temp_parameters['handling_type_num']
+        if self.handling_type_drop:
+            del temp_parameters['handling_type_drop']
+        self.missing_values_handler(handling_type_cat=self.handling_type_cat,
+                                    handling_type_num=self.handling_type_num,
+                                    drop=self.handling_type_drop)
         X,y,pars = self.preprocess(type_num=self.type_num,
                                    type_cat=self.type_cat,
                                    type_cat_target=self.type_cat_target,
                                    type_num_target=self.type_num_target)
-        handling_type = temp_parameters['handling_type']
-        handling_type = "KNN"
-        del temp_parameters['handling_type']
-        X,y = self.missing_values_handler(X,y,handling_type=handling_type)
+
         self.numarical_preprocessing_parameters = pars
         model = eval(ml_algorithm)
         model = model(**temp_parameters)
@@ -551,6 +539,8 @@ class Module():
         self.type_num = automl.type_num
         self.type_cat = automl.type_cat
         self.task = automl.task
+        self.imputer_num = automl.imputer_num
+        self.imputer_cat_and_bool = automl.imputer_cat_and_bool
     
     def predict(self,data:pd.DataFrame):
         output=None
@@ -569,6 +559,10 @@ class Module():
             
             for col in self.features_bool:
                 data[col] = data[col].map(self.encoders[col])
+                
+            if self.imputer_cat_and_bool != None and self.imputer_num != None:
+                data.loc[:,self.features_num] = self.imputer_num.transform(data.loc[:,self.features_num])
+                data.loc[:,self.features_cat+self.features_bool] = self.imputer_cat_and_bool.transform(data.loc[:,self.features_cat+self.features_bool])
 
             X_cat = data[self.features_cat].copy()
             X_num = data[self.features_num].copy()
