@@ -6,6 +6,7 @@ import time
 import shutil
 from streamlit_navigation_bar import st_navbar
 import subprocess
+import requests
 from docker_utils import *
 os.makedirs('Models',exist_ok=True)
 os.makedirs('Deployments',exist_ok=True)
@@ -57,7 +58,6 @@ def train_model(df, target_column,training_level):
 def predict_with_model(model, input_data):
     return model.predict(input_data)
 
-# Main Streamlit app
 def train_page():
     st.sidebar.title('Auto ML Tool')
     if not st.session_state.get('file'):
@@ -115,14 +115,20 @@ def train_page():
                 percent_complete = (i+1)/training_level
                 progress_bar.progress(percent_complete, text=progress_text.format(p=round(percent_complete*100,ndigits=2)))
             fig = tuner.final_training()
-            st.subheader("Training visualization")
-            st.plotly_chart(fig)
-            st.warning(f"The training elapsed time: {(round(round(time.time()-start_time)/60,ndigits=2))} Minutes")
-            st.success(f"Model trained with score: {tuner.score}")
             dates = tuner.features_date
             st.session_state['DATES'] = dates
             st.session_state['TRAINED'] = True
             st.session_state['TUNER'] = tuner
+            st.session_state['training_fig'] = fig
+            st.session_state['training_elapsed_time'] = (round(round(time.time()-start_time)/60,ndigits=2))
+            st.session_state['training_score'] = tuner.score
+        if st.session_state.get('training_fig'):
+            st.subheader("Training visualization")
+            st.plotly_chart(st.session_state['training_fig'])
+        if st.session_state.get('training_elapsed_time'):
+            st.warning(f"""The training elapsed time: {st.session_state.get('training_elapsed_time')} Minutes""")
+        if st.session_state.get('training_score'):
+            st.success(f"""Model trained with score: {st.session_state.get('training_score')}""")
         
         if st.session_state.get('TRAINED'):
             # Test page to input data and predict
@@ -159,8 +165,10 @@ def train_page():
                 with st.spinner("Predicting ... !"):
                     prediction = predict_with_model(trained_model, input_data)
                 st.success(f"Prediction: {prediction[0]}")
+
             if st.session_state.get('DEPLOYED'):
                 st.success('The model is deployed successfuly')
+
             if not st.session_state.get('DEPLOYED'):
                 st.subheader("Deploy as an API:")
                 model_name = st.text_input("Input the model name")
@@ -307,7 +315,39 @@ def deployed_page():
             except FileNotFoundError as e:
                 st.warning("There is no documentaion for this container !!")
     else:
-        images = images.assign(IMAGE=None)
+        st.warning("You do not have deployed models")
+
+def batch_inference_page():
+    st.header("Your current running models")
+    images, containers = get_images_and_containers()
+    images = images[images['REPOSITORY'] != 'python']
+    if not images.empty and not containers.empty:
+        images['IMAGE'] = images['REPOSITORY']+":"+images['TAG']
+        df = containers.merge(images,on='IMAGE',how='left',suffixes=('_CONTAINER','_IMAGE'))
+        df = df[df['STATUS']=='running']
+        st.markdown(df.style.hide(axis="index").to_html(), unsafe_allow_html=True)
+        st.subheader("Choose the model")
+         
+        model_name = st.selectbox("Model name",options=images['IMAGE'].tolist())
+    
+        if model_name:
+            st.divider()
+            st.subheader("Uplaod the file to make predictions")
+            st.session_state['file_inference'] = st.file_uploader("Upload CSV file", type=["csv"])
+            if st.session_state.get('file_inference'):
+                st.write("Data review:")
+                df = pd.read_csv(st.session_state.get('file_inference'))
+                st.dataframe(df.head())
+                df = {"data" : df.to_dict('records')}
+                if st.button("Make prediction"):
+                    model_name_url = model_name.split(":")[0]
+                    url = f'http://localhost:8000/{model_name_url}/predict'
+                    header={}
+                    payload = json.dumps(df)
+                    response = requests.post(url,headers=header,data=payload)
+                    print(response.json())
+            
+    else:
         st.warning("You do not have deployed models")
 
 
@@ -368,6 +408,7 @@ page = st_navbar(["Home", "Train and deploy", "Deployed models"],
 pages = {
     "Home":home_page,
     "Train and deploy":train_page,
-    "Deployed models":deployed_page
+    "Deployed models":deployed_page,
+    "Make prediction":batch_inference_page
 }
 pages[page]()
