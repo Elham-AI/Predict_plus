@@ -20,7 +20,7 @@ def get_images_and_containers():
                 "TAG": tag,
                 "IMAGE ID": image.id.split(":")[1][:12],
                 "CREATED": image.attrs['Created'],
-                "SIZE": image.attrs['Size']
+                "SIZE": image.attrs['Size'] / 1000000000
             })
     
     # Create a DataFrame from the image data

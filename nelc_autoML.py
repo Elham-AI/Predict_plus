@@ -24,7 +24,12 @@ import json
 from datetime import datetime
 import optuna.visualization as vis
 from sklearn.impute import KNNImputer
-# logging.basicConfig(filename='logs.log', filemode='a', format='%(asctime)s - %(levelname)s : %(message)s', level=logging.DEBUG)
+logging.basicConfig(
+    # filename='logs.log', 
+    # filemode='a', 
+    # format='%(asctime)s - %(levelname)s : %(message)s', 
+    level=logging.INFO
+    )
 def log_message(level, message):
     if level.lower() == 'info':
         logging.info(message)
@@ -188,7 +193,7 @@ class AutoML:
             self.task = 'regression'
         log_message('debug',f'The selected task is {self.task}')
     
-    def preprocess(self,type_num,type_cat):
+    def preprocess(self,type_num,type_cat,type_cat_target,type_num_target):
         self.X = self.data.drop(columns=self.target_column)
         self.y = self.data[self.target_column]
         X_cat = self.X[self.features_cat].copy()
@@ -228,7 +233,7 @@ class AutoML:
             raise RuntimeError("wrong preprocessing type")
             
         if self.task == 'regression':
-            if type_num == 'min_max':
+            if type_num_target == 'min_max':
                 y_min = self.y.copy().min(axis=0)
                 y_max = self.y.copy().max(axis=0)
                 new_y = (self.y.copy() - y_min)/(y_max - y_min)
@@ -236,7 +241,7 @@ class AutoML:
                 num_pars['y_min']=y_min
                 num_pars['y_max']=y_max
                 
-            elif type_num == 'standard':
+            elif type_num_target == 'standard':
                 y_mean = self.y.copy().mean(axis=0)
                 y_std = self.y.copy().std(axis=0)
                 new_y = (self.y.copy() - y_mean)/y_std
@@ -245,51 +250,67 @@ class AutoML:
                 num_pars['y_mean']=y_mean
 
         elif self.task == 'multi_classification' or self.task == 'binary_classification':
-            # if type_cat == 'label':
-            le = LabelEncoder()
-            le.fit(self.y.copy())
-            new_y= le.transform(self.y.copy())
-            self.encoders['target'] = le
-            # elif type_cat == 'one_hot':
-            #     le = OneHotEncoder()
-            #     le.fit(self.y.copy().values.reshape(-1, 1))
-            #     new_y = le.transform(self.y.copy().values.reshape(-1, 1)).toarray()
-            #     self.encoders['target'] = le
+            if type_cat_target == 'label':
+                le = LabelEncoder()
+                le.fit(self.y.copy())
+                new_y= le.transform(self.y.copy()).reshape(-1, 1)
+                self.encoders['target'] = le
+            elif type_cat_target == 'one_hot':
+                le = OneHotEncoder(handle_unknown='ignore')
+                le.fit(self.y.copy().values.reshape(-1, 1))
+                new_y = le.transform(self.y.copy().values.reshape(-1, 1)).toarray()
+                self.encoders['target'] = le
         return np.concatenate([X_cat,new_X_num,X_bool],axis=1),new_y,num_pars
 
     def missing_values_handler(self,X,y,handling_type):
         if handling_type=="drop":
-            new_data = self.data.dropna()
-            if new_data.empty:
+            new_data = np.concatenate([X,y], axis=1)
+            new_data = new_data[~np.isnan(new_data).any(axis=1)]
+            if new_data.shape[0] == 0:
                 handling_type = "target_based_filling"
             else:
-                self.data = new_data
-                return
+                new_X = new_data[:,:-1]
+                new_y = new_data[:,-1]
+                return new_X,new_y
         if handling_type=="target_based_filling":
-            new_data = self.data.copy()
-            missing_columns = new_data.isna().sum()
-            missing_columns = missing_columns[missing_columns>0].index
-            targets = list(new_data[self.target_column].unique())
-            for col in missing_columns:
+            # Concatenate X and y along the last axis
+            new_data = np.concatenate([X, y], axis=1)
+            
+            # Identify columns with missing values
+            missing_columns = np.any(np.isnan(new_data), axis=0)
+            missing_column_indices = np.where(missing_columns)[0]  # Get indices of columns with NaNs
+            
+            # Identify unique targets in the target column (assuming the target column is the last column in new_data)
+            target_column_index = new_data.shape[1] - 1
+            targets = np.unique(new_data[:, target_column_index][~np.isnan(new_data[:, target_column_index])])
+            
+            for col in missing_column_indices:
+                if col == target_column_index:
+                    continue  # Skip target column in processing
+                
                 for target in targets:
-                    indexes = new_data[new_data[self.target_column]==target][col].index
-                    if not indexes.empty:
-                        if col in self.features_num:
-                            col_mean = new_data.loc[indexes,col].mean()
-                            new_data.loc[indexes,col] = new_data.loc[indexes,col].fillna(col_mean)
-                        elif col in self.features_cat or col in self.features_date:
-                            maximum_count_col = new_data.loc[indexes,col].value_counts().sort_values().tolist()[0]
-                            new_data.loc[indexes,col] = new_data.loc[indexes,col].fillna(maximum_count_col)
-                    else:
-                        pass
-            new_data = new_data.dropna()
-            if new_data.empty:
+                    # Find indices where target matches in the target column
+                    target_indices = np.where(new_data[:, target_column_index] == target)[0]
+                    column_data = new_data[target_indices, col]
+                    
+                    # Ignore rows with NaN in the current column
+                    valid_indices = target_indices[~np.isnan(column_data)]
+                    
+                    if valid_indices.size > 0:
+                        col_mean = np.nanmean(column_data)
+                        new_data[target_indices, col] = np.where(np.isnan(new_data[target_indices, col]), col_mean, new_data[target_indices, col])
+        
+            # Drop rows with any remaining NaN values
+            new_data = new_data[~np.isnan(new_data).any(axis=1)]
+            if new_data.shape[0] == 0:
                 handling_type = "KNN"
             else:
-                self.data = new_data
+                new_X = new_data[:,:-1]
+                new_y = new_data[:,-1]
+                return new_X,new_y
         
         if handling_type == "KNN":
-            new_data = np.concatenate([X,np.expand_dims(y,axis=1)],axis=1)
+            new_data = np.concatenate([X,y],axis=1)
             imputer = KNNImputer(n_neighbors=3)
             new_data = imputer.fit_transform(new_data)
             new_X = new_data[:,:-1]
@@ -353,17 +374,37 @@ class AutoML:
                 ml_algorithm_type = self.ml_algorithms[self.ml_algorithms.algorithm==ml_algorithm]['type'].item()
             if ml_algorithm_type in ['linear','svm','knn']:
                 type_cat = 'one_hot'
+                if self.task == 'binary_classification' or self.task == 'multi_classification':
+                    type_cat_target = 'one_hot'
+                else:
+                    type_cat_target = None
             else:
                 type_cat = trial.suggest_categorical('type_cat', ['one_hot','label'])
+                if self.task == 'binary_classification' or self.task == 'multi_classification':
+                    type_cat_target = trial.suggest_categorical('type_cat_target', ['one_hot','label'])
+                else:
+                    type_cat_target = None
 
             if ml_algorithm in ['ComplementNB','MultinomialNB','CategoricalNB']:
                 type_num = 'min_max'
+                if self.task == 'regression':
+                    type_num_target = 'min_max'
+                else:
+                    type_num_target = None
             else:
                 type_num = trial.suggest_categorical('type_num', ['min_max','standard'])
+                if self.task == 'regression':
+                    type_num_target = trial.suggest_categorical('type_num_target', ['min_max','standard'])
+                else:
+                    type_num_target = None
 
             handling_type = trial.suggest_categorical('handling_type', ['drop','target_based_filling','KNN'])
             handling_type = "KNN"
-            X,y,pars = self.preprocess(type_num,type_cat)
+            X,y,pars = self.preprocess(type_num=type_num,
+                                       type_cat=type_cat,
+                                       type_cat_target=type_cat_target,
+                                       type_num_target=type_num_target)
+            
             X,y = self.missing_values_handler(X,y,handling_type=handling_type)
             if X.shape[0] > 5000:
                 log_message('info','The data is huge, we will train on a subset of the data')
@@ -402,8 +443,8 @@ class AutoML:
             model.fit(X_train,y_train)
             print("fited ",ml_algorithm)
             y_pred = model.predict(X_test)
-            y_pred = self.postprocess(y_pred,pars,type_num,type_cat,False)
-            y_test = self.postprocess(y_test,pars,type_num,type_cat,False)
+            y_pred = self.postprocess(y_pred,pars,type_num_target,type_cat_target,False)
+            y_test = self.postprocess(y_test,pars,type_num_target,type_cat_target,False)
             score = self.evaluate(y_pred=y_pred,y_true=y_test)
             print(score)
             return score
@@ -432,6 +473,7 @@ class AutoML:
     def final_training(self):
         self.best_trial = self.study.best_trial
         self.best_params = self.study.best_params
+        log_message('info',f"The best parameters:\n{self.best_params}")
         self.score = self.study.best_value
         log_message('info',f'The optimized model achieved {self.score} score')
         log_message('debug',f'The fitting phase started')
@@ -440,21 +482,47 @@ class AutoML:
         ml_algorithm_type = self.ml_algorithms[self.ml_algorithms.algorithm==ml_algorithm]['type'].item()
         if ml_algorithm_type in ['linear','svm','knn']:
             self.type_cat = 'one_hot'
+            if self.task == 'binary_classification' or self.task == 'multi_classification':
+                self.type_cat_target = 'one_hot'
+            else:
+                self.type_cat_target = None
         else:
             self.type_cat = temp_parameters['type_cat']
             del temp_parameters['type_cat']
+            if self.task == 'binary_classification' or self.task == 'multi_classification':
+                self.type_cat_target = temp_parameters['type_cat_target']
+                del temp_parameters['type_cat_target']
+            else:
+                self.type_cat_target = None   
+            
         if ml_algorithm in ['ComplementNB','MultinomialNB','CategoricalNB']:
             self.type_num = 'min_max'
+            if self.task == 'regression':
+                self.type_num_target = 'min_max'
+            else:
+                self.type_num_target = None
         else:
             self.type_num = temp_parameters['type_num']
             del temp_parameters['type_num']
-        del temp_parameters['ml_algorithm']
-        del temp_parameters['handling_type']
+            if self.task == 'regression':
+                self.type_num_target = temp_parameters['type_num_target']
+                del temp_parameters['type_num_target']
+            else:
+                self.type_num_target = None
+                   
+        del temp_parameters['ml_algorithm'] 
         temp_parameters2 = {}
         for key,val in temp_parameters.items():
             temp_parameters2[key.replace(ml_algorithm+"_","").strip()] = val
         temp_parameters = temp_parameters2
-        X,y,pars = self.preprocess(self.type_num,self.type_cat)
+        X,y,pars = self.preprocess(type_num=self.type_num,
+                                   type_cat=self.type_cat,
+                                   type_cat_target=self.type_cat_target,
+                                   type_num_target=self.type_num_target)
+        handling_type = temp_parameters['handling_type']
+        handling_type = "KNN"
+        del temp_parameters['handling_type']
+        X,y = self.missing_values_handler(X,y,handling_type=handling_type)
         self.numarical_preprocessing_parameters = pars
         model = eval(ml_algorithm)
         model = model(**temp_parameters)
@@ -501,11 +569,6 @@ class Module():
             
             for col in self.features_bool:
                 data[col] = data[col].map(self.encoders[col])
-            
-            # Fill nan columns
-            data[self.features_cat] = data[self.features_cat].fillna('UNK')
-            data[self.features_num] = data[self.features_num].fillna(0)
-            data[self.features_bool] = data[self.features_bool].fillna(False)
 
             X_cat = data[self.features_cat].copy()
             X_num = data[self.features_num].copy()
@@ -563,7 +626,7 @@ class Module():
             return new_output
         except Exception as e:
             log_message('error',e)
-            log_message('error',data)
+            log_message('error',data.isna().sum()[data.isna().sum()>0])
             if output:
                 log_message('error',output)
                 log_message('error',self.encoders['target'].classes_)

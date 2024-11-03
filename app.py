@@ -13,8 +13,39 @@ os.makedirs('Deployments',exist_ok=True)
 
 st.set_page_config(
 layout="wide",
-page_icon="logo.svg"
+page_icon="assests/logo-en.svg"
 )
+
+import base64
+
+# @st.cache_data
+# def get_base64_of_bin_file(bin_file):
+#     with open(bin_file, 'rb') as f:
+#         data = f.read()
+#     return base64.b64encode(data).decode()
+
+# def set_png_as_page_bg(png_file):
+#     bin_str = get_base64_of_bin_file(png_file)
+#     page_bg_img = f'''
+#     <style>
+#     [data-testid="stAppViewContainer"] > .main {{
+#         background-image: linear-gradient(rgba(13, 13, 43, 0.85), rgba(13, 13, 43, 0.85)), url("data:image/png;base64,{bin_str}");
+#         background-size: cover;
+#         background-attachment: fixed;
+#         background-position: center;
+
+#         -webkit-backdrop-filter: blur(10px); /* Safari support */
+#     }}
+#     </style>
+#     '''
+    
+#     st.markdown(page_bg_img, unsafe_allow_html=True)
+#     return
+
+# set_png_as_page_bg('/home/faris1/Desktop/Predict_plus/background.png')
+
+# with open(".streamlit/styles.css") as f:
+#     st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
 # Function to train model
 def train_model(df, target_column,training_level):
@@ -182,7 +213,7 @@ def train_page():
 def home_page():
     _,col,_ = st.columns(3)
     with col:
-        st.image("logo.svg")
+        st.image("assests/logo-en.svg",use_column_width=True)
     st.title("Welcome to the Auto ML Tool!")
     st.markdown("""
     ### Automate Your Machine Learning Journey
@@ -203,7 +234,7 @@ def home_page():
     """)
     _,col1,_ = st.columns(3)
     with col1:
-        st.image("faris_ml_create_an_image_of_a_manager_that_thinking_of_a_data_674c193a-ea42-4f37-a1c2-fb7a21d953b8_3.png", caption="Machine Learning Made Simple", use_column_width=True)
+        st.image("assests/faris_ml_create_an_image_of_a_manager_that_thinking_of_a_data_674c193a-ea42-4f37-a1c2-fb7a21d953b8_3.png", caption="Machine Learning Made Simple", use_column_width=True)
 
 def deployed_page():
     st.header("Your deployed models")
@@ -253,17 +284,20 @@ def deployed_page():
                 time.sleep(1)
                 st.rerun()
         elif delete and model_name:
-            with st.spinner(""):
-                container_ids = df[df['IMAGE']==model_name]['CONTAINER ID'].tolist()
-                for container_id in container_ids:
-                    delete_container(container_id)
-                delete_image(model_name)
-                shutil.rmtree(os.path.join('Deployments',model_name.split(':')[0]))
-                os.remove(os.path.join('Models',f"""{model_name.split(':')[0]}_model.pkl"""))
-                os.remove(os.path.join('Models',f"""{model_name.split(':')[0]}_tuner.pkl"""))
-                st.success("The model is deleted")
-                time.sleep(1)
-                st.rerun()
+            if df[df['IMAGE']==model_name]['STATUS'].tolist()[0] == 'running':
+                st.error("Please stope the model first before deleting it")
+            else:
+                with st.spinner(""):
+                    container_ids = df[df['IMAGE']==model_name]['CONTAINER ID'].tolist()
+                    for container_id in container_ids:
+                        delete_container(container_id)
+                    delete_image(model_name)
+                    shutil.rmtree(os.path.join('Deployments',model_name.split(':')[0]))
+                    os.remove(os.path.join('Models',f"""{model_name.split(':')[0]}_model.pkl"""))
+                    os.remove(os.path.join('Models',f"""{model_name.split(':')[0]}_tuner.pkl"""))
+                    st.success("The model is deleted")
+                    time.sleep(1)
+                    st.rerun()
         if model_name:
             st.divider()
             try:
@@ -276,7 +310,61 @@ def deployed_page():
         images = images.assign(IMAGE=None)
         st.warning("You do not have deployed models")
 
-page = st_navbar(["Home", "Train and deploy", "Deployed models"],logo_path="logo.svg")
+
+styles = {
+    "nav": {
+        "background-color": "rgba(255, 255, 255, 0.2)",  # Semi-transparent white
+        "backdrop-filter": "blur(15px)",                 # Strong blur for glass effect
+        "border-radius": "10px",                         # Smooth rounded corners
+        "padding": "10px 20px",
+        "box-shadow": "0 8px 32px rgba(0, 0, 0, 0.25)",  # Soft shadow to add depth
+        "border": "1px solid rgba(255, 255, 255, 0.3)",  # Subtle border for realism
+    },
+    "ul": {
+        "display": "flex",
+        "justify-content": "space-around",               # Align items evenly in navbar
+        "padding": "0",
+        "list-style": "none",
+        "margin": "0",
+    },
+    "li": {
+        "padding": "0 15px",
+    },
+    "a": {
+        "color": "#FFFFFF",                              # White text for contrast
+        "text-decoration": "none",
+        "font-weight": "bold",
+        "padding": "8px 15px",
+        "border-radius": "5px",
+        "transition": "background-color 0.3s ease",     # Smooth hover effect
+    },
+    "hover": {
+        "background-color": "rgba(255, 255, 255, 0.3)", # Lighter background on hover
+        "color": "#FF5C5C",                             # Color change on hover
+    },
+    "span": {
+        "color": "#FFFFFF",                              # Text color
+        "font-size": "1rem",
+        "font-weight": "bold",
+    },
+    "img": {
+        "width": "35px",                                 # Adjust logo size
+        "margin-right": "15px",
+    },
+}
+options = {
+    "show_menu": True,
+    "show_sidebar": True,
+    "hide_nav": False,
+    "fix_shadow": True,
+    "use_padding": False,
+}
+page = st_navbar(["Home", "Train and deploy", "Deployed models"],
+                 logo_path="assests/logo-en.svg",
+                #  styles=styles,
+                #   options=options,
+                #   adjust=True,
+                  )
 pages = {
     "Home":home_page,
     "Train and deploy":train_page,

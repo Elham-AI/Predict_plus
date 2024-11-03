@@ -1,0 +1,9 @@
+/* General app background with faded effect */
+#root {
+    background-image: linear-gradient(rgba(13, 13, 43, 0.7), rgba(13, 13, 43, 0.7)), url('background.webp');
+    background-size: cover;
+    background-attachment: fixed;
+    background-position: center;
+    color: #E0E0E0;
+    font-family: "sans-serif";
+}
