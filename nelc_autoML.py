@@ -268,6 +268,7 @@ class AutoML:
             self.data = self.data.copy().dropna()
             self.imputer_num = None
             self.imputer_cat_and_bool = None
+            
         if handling_type_num != 'KNN' and self.features_num:
             imputer = SimpleImputer(strategy=handling_type_num)
             self.data.loc[:,self.features_num] = imputer.fit_transform(self.data.loc[:,self.features_num])
@@ -538,6 +539,8 @@ class Module():
         self.encoders = automl.encoders
         self.type_num = automl.type_num
         self.type_cat = automl.type_cat
+        self.type_cat_target = automl.type_cat_target
+        self.type_num_target = automl.type_num_target
         self.task = automl.task
         self.imputer_num = automl.imputer_num
         self.imputer_cat_and_bool = automl.imputer_cat_and_bool
@@ -559,10 +562,12 @@ class Module():
             
             for col in self.features_bool:
                 data[col] = data[col].map(self.encoders[col])
-                
-            if self.imputer_cat_and_bool != None and self.imputer_num != None:
-                data.loc[:,self.features_num] = self.imputer_num.transform(data.loc[:,self.features_num])
+
+            if self.imputer_cat_and_bool != None:
                 data.loc[:,self.features_cat+self.features_bool] = self.imputer_cat_and_bool.transform(data.loc[:,self.features_cat+self.features_bool])
+
+            if self.imputer_num != None:
+                data.loc[:,self.features_num] = self.imputer_num.transform(data.loc[:,self.features_num])
 
             X_cat = data[self.features_cat].copy()
             X_num = data[self.features_num].copy()
@@ -598,22 +603,22 @@ class Module():
             input_data = np.concatenate([X_cat,new_X_num,X_bool],axis=1)
             output = self.model.predict(input_data)
             if self.task == 'regression':
-                if self.type_num == 'min_max':
+                if self.type_num_target == 'min_max':
                     y_min = self.preprocessing_parameters['y_min']
                     y_max = self.preprocessing_parameters['y_max']
                     new_output = output * (y_max - y_min) + y_min
                     
-                elif self.type_num == 'standard':
+                elif self.type_num_target == 'standard':
                     y_mean = self.preprocessing_parameters['y_mean']
                     y_std = self.preprocessing_parameters['y_std']
                     new_output = (output * y_std ) + y_mean
 
             elif self.task == 'multi_classification' or self.task == 'binary_classification':
-                if self.type_cat == 'label':
+                if self.type_cat_target == 'label':
                     le = self.encoders['target']
                     new_output = le.inverse_transform(output)
 
-                elif self.type_cat == 'one_hot':
+                elif self.type_cat_target == 'one_hot':
                     le = self.encoders['target']
                     new_output = le.inverse_transform(output.reshape(-1, 1))
 
