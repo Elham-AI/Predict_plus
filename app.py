@@ -181,14 +181,18 @@ def train_page():
                             files = os.listdir('Deploy_template')
                             dist = os.path.join('Deployments',model_name)
                             os.makedirs(dist,exist_ok=True)
+                            # Copy files from deployments template to distenation folder
                             for i in files:
                                 shutil.copyfile(os.path.join('Deploy_template',i),os.path.join(dist,i))
+                            
+                            # Edit the main.py file
                             with open(os.path.join(dist,'main.py'),'r') as f:
                                 file_content = f.read()
                             file_content = file_content.replace("<model_name>",model_name)
                             with open(os.path.join(dist,'main.py'),'w') as f:
                                 f.write(file_content)
 
+                            # Edit the readme.md file
                             with open(os.path.join(dist,'README.md'),'r') as f:
                                 file_content = f.read()
                             file_content = file_content.replace("[API Name]",model_name)
@@ -198,11 +202,30 @@ def train_page():
                             file_content = file_content.replace("<input_json>",json.dumps(input_data.to_dict('records'),indent=4))
                             with open(os.path.join(dist,'README.md'),'w') as f:
                                 f.write(file_content)
+
+                            _,containers = get_images_and_containers()
+                            if containers.empty:
+                                ports = {'8000/tcp': 8000}
+                                port = 8000
+                            else:
+                                commands = containers['COMMAND'].tolist()
+                                commands = [int(i[-1]) for i in commands]
+                                port = max(commands)+1
+                                ports = {f'{port}/tcp':port} 
+                            with open(os.path.join(dist,'dockerfile'),'r') as f:
+                                file_content = f.read()
+
+                            file_content = file_content.replace("<port>",str(port))
+                            with open(os.path.join(dist,'dockerfile'),'w') as f:
+                                f.write(file_content)
+
                             shutil.copyfile(os.path.join('Models',f"{model_name}_model.pkl"), os.path.join(dist,f"{model_name}_model.pkl"))
                             shutil.copyfile(os.path.join('Models',f"{model_name}_tuner.pkl"), os.path.join(dist,f"{model_name}_tuner.pkl"))
                             shutil.copyfile('nelc_autoML.py', os.path.join(dist,'nelc_autoML.py'))
+                              
+
                             image_id = build_image(path=dist,tag=model_name)
-                            run_container(image=image_id,ports={'8000/tcp': 8000})
+                            run_container(image=image_id,ports=ports)
                             st.success(f"Docker image built successfully")
                             st.session_state['DEPLOYED'] = True
                         else:
@@ -329,7 +352,9 @@ def batch_inference_page():
         st.subheader("Choose the model")
          
         model_name = st.selectbox("Model name",options=images['IMAGE'].tolist())
-    
+        port = df[df['IMAGE']==model_name]['COMMAND'].tolist()[0]
+        port = int(port[-1])
+
         if model_name:
             st.divider()
             st.subheader("Uplaod the file to make predictions")
@@ -338,14 +363,17 @@ def batch_inference_page():
                 st.write("Data review:")
                 df = pd.read_csv(st.session_state.get('file_inference'))
                 st.dataframe(df.head())
-                df = {"data" : df.to_dict('records')}
+                df_dict = {"data" : df.to_dict('records')}
                 if st.button("Make prediction"):
                     model_name_url = model_name.split(":")[0]
-                    url = f'http://localhost:8000/{model_name_url}/predict'
+                    url = f'http://localhost:{port}/{model_name_url}/predict'
                     header={}
-                    payload = json.dumps(df)
+                    payload = json.dumps(df_dict)
                     response = requests.post(url,headers=header,data=payload)
-                    print(response.json())
+                    predictions = response.json()['predictions']
+                st.write("Data with Prediction:")
+                df['prediction'] = predictions
+                st.dataframe(df.head())
             
     else:
         st.warning("You do not have deployed models")

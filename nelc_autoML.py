@@ -32,19 +32,23 @@ logging.basicConfig(
     )
 def log_message(level, message):
     if level.lower() == 'info':
+        print("[INFO]: ",message)
         logging.info(message)
     elif level.lower() == 'error':
+        print("[ERROR]: ",message)
         logging.error(message)
     elif level.lower() == 'warning':
+        print("[WARNING]: ",message)
         logging.warning(message)
     elif level.lower() == 'debug':
+        print("[DEBUG]: ",message)
         logging.debug(message)
     else:
         logging.critical('Unsupported logging level: ' + level)
 
 class AutoML:
     def __init__(self,data:pd.DataFrame,interpretability:float,target_column:str,data_preprocessing:bool=False):
-        self.data = data
+        self.data = data.copy()
         self.interpretability = interpretability
         self.target_column = target_column
         self.data_preprocessing = data_preprocessing
@@ -54,7 +58,7 @@ class AutoML:
         self.features_cat = []
         self.features_date = []
         self.features_bool = []
-        self.ml_algorithms = pd.read_csv('ml_algorithms.csv',sep='\t')
+        self.ml_algorithms = pd.read_csv('ml_algorithms.csv')
         self.ml_algorithms_parameters = json.load(open('ml_algorithms_parameters.json','r'))
         for col in self.data.columns:
             if str(self.data[col].dtype) in ['float32','float64','int32','int64']:
@@ -65,7 +69,9 @@ class AutoML:
                 self.features_cat.append(col)
         log_message('debug',self.data.info())
         self.encoders = {}
+        log_message('info',list(self.data[self.target_column].unique()))
         self.refine_the_data()
+        log_message('info',list(self.data[self.target_column].unique()))
         log_message('debug',self.data.info())
         if 'float' in str(self.data[self.target_column].dtype) or 'int' in str(self.data[self.target_column].dtype):
             self.features_num.remove(self.target_column)
@@ -128,7 +134,7 @@ class AutoML:
             uniques = list(self.data[col].unique())
             for i,j in enumerate(uniques):
                 self.encoders[col][j] = bool(i)
-            self.data[col] = self.data[col].astype(bool)
+            self.data[col] = self.data[col].map(self.encoders[col])
             self.features_num.remove(col)
             self.features_bool.append(col)
 
@@ -185,8 +191,9 @@ class AutoML:
         if constant_columns:
             self.data = self.data.drop(columns=constant_columns)
         
-        # Define the taask
-        if str(self.data[self.target_column].dtype) == 'bool':
+        # Define the task
+        target_nunique = self.data[self.target_column].nunique()
+        if target_nunique == 2:
             self.task = 'binary_classification'
         elif str(self.data[self.target_column].dtype) == 'object':
             self.task = 'multi_classification'
@@ -269,12 +276,12 @@ class AutoML:
             self.imputer_num = None
             self.imputer_cat_and_bool = None
             
-        if handling_type_num != 'KNN' and self.features_num:
+        if handling_type_num != 'KNN' and self.features_num and handling_type_num:
             imputer = SimpleImputer(strategy=handling_type_num)
             self.data.loc[:,self.features_num] = imputer.fit_transform(self.data.loc[:,self.features_num])
             self.imputer_num = imputer
 
-        if handling_type_cat and self.features_cat + self.features_bool:
+        if handling_type_cat and self.features_cat + self.features_bool and handling_type_cat:
             imputer = SimpleImputer(strategy=handling_type_cat)
             self.data.loc[:,self.features_cat + self.features_bool] = imputer.fit_transform(self.data.loc[:,self.features_cat + self.features_bool])
             self.imputer_cat_and_bool = imputer
@@ -283,7 +290,8 @@ class AutoML:
             imputer = KNNImputer(n_neighbors=7)
             self.data.loc[:,self.features_num] = imputer.fit_transform(self.data.loc[:,self.features_num])
             self.imputer_num = imputer
-    
+        self.data = self.data.dropna()
+
     def postprocess(self,y,params,type_num,type_cat,inference):
         if self.task == 'regression':
             if type_num == 'min_max':
@@ -304,8 +312,6 @@ class AutoML:
 
                 elif type_cat == 'one_hot':
                     le = self.encoders['target']
-                    print(y.reshape(-1, 1).shape)
-                    print(y)
                     new_y = le.inverse_transform(y.reshape(-1, 1).astype(int))
             else:
                 new_y = y.copy()
@@ -361,7 +367,7 @@ class AutoML:
                     type_num_target = trial.suggest_categorical('type_num_target', ['min_max','standard'])
                 else:
                     type_num_target = None
-
+            log_message('info',list(self.data[self.target_column].unique()))
             if self.data.isnull().sum().sum() > 0:
                 log_message('debug',"Opps!! there are nulls in your data")
 
@@ -374,10 +380,15 @@ class AutoML:
                     handling_type_num = trial.suggest_categorical('handling_type_num', ['mean','median','most_frequent','KNN'])
                     handling_type_cat = 'most_frequent'
                 else:
-                    handling_type_num = ''
-                    handling_type_cat = ''
+                    handling_type_num = None
+                    handling_type_cat = None
 
                 self.missing_values_handler(handling_type_cat=handling_type_cat,handling_type_num=handling_type_num,drop=handling_type_drop)
+            else:
+                self.imputer_cat_and_bool = None
+                self.imputer_num = None
+            
+            log_message('info',list(self.data[self.target_column].unique()))
 
             X,y,pars = self.preprocess(type_num=type_num,
                                        type_cat=type_cat,
@@ -420,16 +431,20 @@ class AutoML:
                     trial_parameters[key] = trial.suggest_categorical(ml_algorithm+"_"+key,val)
             model = eval(ml_algorithm)
             model = model(**trial_parameters)
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42,shuffle=True)
-            print("fit ",ml_algorithm)
-            print(trial_parameters)
+            if self.task != 'regression':
+                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2,stratify=y ,random_state=42,shuffle=True)
+            else:
+                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2,random_state=42,shuffle=True)
+
+            log_message("debug","Fit "+ml_algorithm)
+            log_message("debug","Trial_parameters: "+str(trial_parameters))
             model.fit(X_train,y_train)
-            print("fited ",ml_algorithm)
+            log_message("debug","Fited "+ml_algorithm)
             y_pred = model.predict(X_test)
             y_pred = self.postprocess(y_pred,pars,type_num_target,type_cat_target,False)
             y_test = self.postprocess(y_test,pars,type_num_target,type_cat_target,False)
             score = self.evaluate(y_pred=y_pred,y_true=y_test)
-            print(score)
+            log_message("info","Score "+str(score))
             return score
         except Exception as e:
             log_message('error',e)
@@ -438,14 +453,14 @@ class AutoML:
     
     def optimize(self,n_trials):
         for i in range(n_trials):
-            print("ask")
+            log_message("debug","Asking")
             trial = self.study.ask()
-            print("train")  # Generate a trial suggestion
+            log_message("debug","Training")  # Generate a trial suggestion
             value = self.train(trial)  # Evaluate the objective function
-            print("tell")
+            log_message("debug","Telling")
             self.study.tell(trial, value)
-            print("finish")
-            print("="*10)
+            log_message("debug","Finished")
+            log_message("debug","="*10)
             gc.collect()
             yield i
     
@@ -502,7 +517,7 @@ class AutoML:
         self.handling_type_drop = temp_parameters.get('handling_type_drop')
         if self.handling_type_num:
             del temp_parameters['handling_type_num']
-        if self.handling_type_drop:
+        if self.handling_type_drop != None:
             del temp_parameters['handling_type_drop']
         self.missing_values_handler(handling_type_cat=self.handling_type_cat,
                                     handling_type_num=self.handling_type_num,
@@ -559,16 +574,16 @@ class Module():
                 data[col+'_'+'hour'] = data[col].dt.hour
                 data[col+'_'+'day_of_year'+'_sin'] = (np.pi *data[col+'_'+'day_of_year'] / 183).apply(lambda x:np.sin(x))
                 data[col+'_'+'hour'+'_sin'] = (np.pi *data[col+'_'+'hour'] / 12).apply(lambda x:np.sin(x))
-            
+            log_message("debug",data.info())
             for col in self.features_bool:
                 data[col] = data[col].map(self.encoders[col])
-
+            log_message("debug",data.info())
             if self.imputer_cat_and_bool != None:
                 data.loc[:,self.features_cat+self.features_bool] = self.imputer_cat_and_bool.transform(data.loc[:,self.features_cat+self.features_bool])
 
             if self.imputer_num != None:
                 data.loc[:,self.features_num] = self.imputer_num.transform(data.loc[:,self.features_num])
-
+            log_message("debug",data.info())
             X_cat = data[self.features_cat].copy()
             X_num = data[self.features_num].copy()
             X_bool = data[self.features_bool].copy().values

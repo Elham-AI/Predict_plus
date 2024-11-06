@@ -36,6 +36,6 @@
     "SGDRegressor": {"loss": ["squared_error", "huber", "squared_epsilon_insensitive", "epsilon_insensitive"], "max_iter": [100, 300]},
     "ElasticNet": {"alpha": [0.01, 10], "l1_ratio": [0.1, 0.9]},
     "TweedieRegressor": {"power": [0, 2], "alpha": [0.01, 10]},
-    "LGBMClassifier": {"boosting_type":["gbdt","dart","rf"],"num_leaves":[2,200],"max_depth":[0,100],"learning_rate":[0.01,1],"n_estimators":[2,1000],"class_weight":["balanced",null],"min_split_gain":[0.0,0.5],"min_child_weight":[0.0001,0.1],"min_child_samples":[10,50],"reg_alpha":[0.0,0.5],"reg_lambda":[0.0,0.5]},
-    "LGBMRegressor": {"boosting_type":["gbdt","dart","rf"],"num_leaves":[2,200],"max_depth":[0,100],"learning_rate":[0.01,1],"n_estimators":[2,1000],"min_split_gain":[0.0,0.5],"min_child_weight":[0.0001,0.1],"min_child_samples":[10,50],"reg_alpha":[0.0,0.5],"reg_lambda":[0.0,0.5]}
+    "LGBMClassifier": {"boosting_type":["gbdt","dart","rf"],"num_leaves":[2,50],"max_depth":[0,100],"learning_rate":[0.01,1],"n_estimators":[2,1000],"class_weight":["balanced",null],"min_split_gain":[0.0,0.5],"min_child_weight":[0.0001,0.1],"min_child_samples":[10,50],"reg_alpha":[0.0,0.5],"reg_lambda":[0.0,0.5]},
+    "LGBMRegressor": {"boosting_type":["gbdt","dart","rf"],"num_leaves":[2,50],"max_depth":[0,100],"learning_rate":[0.01,1],"n_estimators":[2,1000],"min_split_gain":[0.0,0.5],"min_child_weight":[0.0001,0.1],"min_child_samples":[10,50],"reg_alpha":[0.0,0.5],"reg_lambda":[0.0,0.5]}
 }

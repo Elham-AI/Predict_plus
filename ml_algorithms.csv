@@ -1,38 +1,40 @@
-algorithm	type	regression	binary_classification	multi_classification
-BaggingClassifier	tree	0	1	1
-BaggingRegressor	tree	1	0	0
-AdaBoostClassifier	tree	0	1	1
-AdaBoostRegressor	tree	1	0	0
-ExtraTreesClassifier	tree	0	1	1
-ExtraTreesRegressor	tree	1	0	0
-GradientBoostingClassifier	tree	0	1	1
-GradientBoostingRegressor	tree	1	0	0
-HistGradientBoostingRegressor	tree	1	0	0
-HistGradientBoostingClassifier	tree	0	1	1
-RandomForestClassifier	tree	0	1	1
-RandomForestRegressor	tree	1	0	0
-DecisionTreeClassifier	tree	0	1	1
-DecisionTreeRegressor	tree	1	0	0
-LinearSVC	svm	0	1	1
-LinearSVR	svm	1	0	0
-NuSVC	svm	0	1	1
-NuSVR	svm	1	0	0
-SVC	svm	0	1	1
-SVR	svm	1	0	0
-KNeighborsClassifier	knn	0	1	1
-KNeighborsRegressor	knn	1	0	0
-BernoulliNB	nb	0	1	1
-CategoricalNB	nb	0	1	1
-ComplementNB	nb	0	1	1
-GaussianNB	nb	0	1	1
-MultinomialNB	nb	0	1	1
-LogisticRegression	linear	0	1	1
-PassiveAggressiveClassifier	linear	0	1	1
-Perceptron	linear	0	1	1
-RidgeClassifier	linear	0	1	1
-SGDClassifier	linear	0	1	1
-LinearRegression	linear	1	0	0
-Ridge	linear	1	0	0
-SGDRegressor	linear	1	0	0
-ElasticNet	linear	1	0	0
-TweedieRegressor	linear	1	0	0
+algorithm,type,regression,binary_classification,multi_classification
+BaggingClassifier,tree,0,1,1
+BaggingRegressor,tree,1,0,0
+AdaBoostClassifier,tree,0,1,1
+AdaBoostRegressor,tree,1,0,0
+ExtraTreesClassifier,tree,0,1,1
+ExtraTreesRegressor,tree,1,0,0
+GradientBoostingClassifier,tree,0,1,1
+GradientBoostingRegressor,tree,1,0,0
+HistGradientBoostingRegressor,tree,1,0,0
+HistGradientBoostingClassifier,tree,0,1,1
+RandomForestClassifier,tree,0,1,1
+RandomForestRegressor,tree,1,0,0
+DecisionTreeClassifier,tree,0,1,1
+DecisionTreeRegressor,tree,1,0,0
+LinearSVC,svm,0,1,1
+LinearSVR,svm,1,0,0
+NuSVC,svm,0,1,1
+NuSVR,svm,1,0,0
+SVC,svm,0,1,1
+SVR,svm,1,0,0
+KNeighborsClassifier,knn,0,1,1
+KNeighborsRegressor,knn,1,0,0
+BernoulliNB,nb,0,1,1
+CategoricalNB,nb,0,1,1
+ComplementNB,nb,0,1,1
+GaussianNB,nb,0,1,1
+MultinomialNB,nb,0,1,1
+LogisticRegression,linear,0,1,1
+PassiveAggressiveClassifier,linear,0,1,1
+Perceptron,linear,0,1,1
+RidgeClassifier,linear,0,1,1
+SGDClassifier,linear,0,1,1
+LinearRegression,linear,1,0,0
+Ridge,linear,1,0,0
+SGDRegressor,linear,1,0,0
+ElasticNet,linear,1,0,0
+TweedieRegressor,linear,1,0,0
+LGBMClassifier,tree,0,1,1
+LGBMRegressor,tree,1,0,0
