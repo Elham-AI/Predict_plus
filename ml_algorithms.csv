@@ -38,3 +38,5 @@ ElasticNet,linear,1,0,0
 TweedieRegressor,linear,1,0,0
 LGBMClassifier,tree,0,1,1
 LGBMRegressor,tree,1,0,0
+CatBoostClassifier,tree,0,1,1
+CatBoostRegressor,tree,1,0,0

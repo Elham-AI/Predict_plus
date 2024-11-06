@@ -2,6 +2,7 @@ import optuna
 import pandas as pd
 import numpy as np
 from lightgbm import *
+from catboost import CatBoostClassifier,CatBoostRegressor
 from tqdm import tqdm
 import logging
 import gc
@@ -367,7 +368,7 @@ class AutoML:
                     type_num_target = trial.suggest_categorical('type_num_target', ['min_max','standard'])
                 else:
                     type_num_target = None
-            log_message('info',list(self.data[self.target_column].unique()))
+
             if self.data.isnull().sum().sum() > 0:
                 log_message('debug',"Opps!! there are nulls in your data")
 
@@ -388,7 +389,6 @@ class AutoML:
                 self.imputer_cat_and_bool = None
                 self.imputer_num = None
             
-            log_message('info',list(self.data[self.target_column].unique()))
 
             X,y,pars = self.preprocess(type_num=type_num,
                                        type_cat=type_cat,

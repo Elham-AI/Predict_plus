@@ -191,18 +191,7 @@ def train_page():
                             file_content = file_content.replace("<model_name>",model_name)
                             with open(os.path.join(dist,'main.py'),'w') as f:
                                 f.write(file_content)
-
-                            # Edit the readme.md file
-                            with open(os.path.join(dist,'README.md'),'r') as f:
-                                file_content = f.read()
-                            file_content = file_content.replace("[API Name]",model_name)
-                            for col in dates:
-                                if col != target_column:
-                                    input_data[col] = input_data[col].astype(str)
-                            file_content = file_content.replace("<input_json>",json.dumps(input_data.to_dict('records'),indent=4))
-                            with open(os.path.join(dist,'README.md'),'w') as f:
-                                f.write(file_content)
-
+                            
                             _,containers = get_images_and_containers()
                             if containers.empty:
                                 ports = {'8000/tcp': 8000}
@@ -212,6 +201,20 @@ def train_page():
                                 commands = [int(i[-1]) for i in commands]
                                 port = max(commands)+1
                                 ports = {f'{port}/tcp':port} 
+
+                            # Edit the readme.md file
+                            with open(os.path.join(dist,'README.md'),'r') as f:
+                                file_content = f.read()
+                            file_content = file_content.replace("[API Name]",model_name)
+                            for col in dates:
+                                if col != target_column:
+                                    input_data[col] = input_data[col].astype(str)
+                            file_content = file_content.replace("<input_json>",json.dumps(input_data.to_dict('records'),indent=4))
+                            file_content = file_content.replace("<port>",str(port))
+                            with open(os.path.join(dist,'README.md'),'w') as f:
+                                f.write(file_content)
+
+                            
                             with open(os.path.join(dist,'dockerfile'),'r') as f:
                                 file_content = f.read()
 
@@ -370,10 +373,12 @@ def batch_inference_page():
                     header={}
                     payload = json.dumps(df_dict)
                     response = requests.post(url,headers=header,data=payload)
-                    predictions = response.json()['predictions']
-                st.write("Data with Prediction:")
-                df['prediction'] = predictions
-                st.dataframe(df.head())
+                    st.session_state['inference_predictions'] = response.json()['predictions']
+
+                if st.session_state.get('inference_predictions'):
+                    st.write("Data with Prediction:")
+                    df['prediction'] = st.session_state.get('inference_predictions')
+                    st.dataframe(df.head())
             
     else:
         st.warning("You do not have deployed models")
@@ -426,16 +431,22 @@ options = {
     "fix_shadow": True,
     "use_padding": False,
 }
-page = st_navbar(["Home", "Train and deploy", "Deployed models","Make prediction"],
+
+if not st.session_state.get("CURRENT_PAGE"):
+    st.session_state["CURRENT_PAGE"] = "Home"
+
+st.session_state['CURRENT_PAGE'] = st_navbar(["Home", "Train and deploy", "Deployed models","Make prediction"],
                  logo_path="assests/logo-en.svg",
+                #  selected = st.session_state.get("CURRENT_PAGE"),
                 #  styles=styles,
                 #   options=options,
                 #   adjust=True,
                   )
+print(st.session_state['CURRENT_PAGE'])
 pages = {
     "Home":home_page,
     "Train and deploy":train_page,
     "Deployed models":deployed_page,
     "Make prediction":batch_inference_page
 }
-pages[page]()
+pages[st.session_state['CURRENT_PAGE']]()
