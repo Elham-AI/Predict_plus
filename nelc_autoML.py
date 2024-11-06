@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from lightgbm import *
 from catboost import CatBoostClassifier,CatBoostRegressor
+from imblearn.over_sampling import SMOTE
 from tqdm import tqdm
 import logging
 import gc
@@ -435,7 +436,10 @@ class AutoML:
                 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2,stratify=y ,random_state=42,shuffle=True)
             else:
                 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2,random_state=42,shuffle=True)
-
+            upsample = trial.suggest_categorical("upsampling_smote",[True,False])
+            if upsample:
+                smote = SMOTE(random_state=42)
+                X_train, y_train = smote.fit_resample(X_train, y_train)
             log_message("debug","Fit "+ml_algorithm)
             log_message("debug","Trial_parameters: "+str(trial_parameters))
             model.fit(X_train,y_train)
@@ -528,6 +532,11 @@ class AutoML:
                                    type_num_target=self.type_num_target)
 
         self.numarical_preprocessing_parameters = pars
+        upsample = temp_parameters["upsampling_smote"]
+        del temp_parameters['upsampling_smote']
+        if upsample:
+            smote = SMOTE(random_state=42)
+            X_train, y_train = smote.fit_resample(X_train, y_train)
         model = eval(ml_algorithm)
         model = model(**temp_parameters)
         model.fit(X,y)
