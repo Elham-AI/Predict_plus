@@ -6,13 +6,14 @@ from catboost import CatBoostClassifier,CatBoostRegressor
 from imblearn.over_sampling import SMOTE
 from tqdm import tqdm
 import logging
+from sklearn.model_selection import KFold
 import gc
 import os
 from datetime import timedelta
 from sklearn.model_selection import KFold
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_absolute_percentage_error,mean_absolute_error,r2_score,f1_score
-from sklearn.ensemble import VotingRegressor
+from sklearn.ensemble import VotingRegressor,VotingClassifier
 from sklearn.linear_model import *
 from sklearn.naive_bayes import *
 from sklearn.tree import *
@@ -49,6 +50,7 @@ def log_message(level, message):
         logging.critical('Unsupported logging level: ' + level)
 
 class AutoML:
+
     def __init__(self,data:pd.DataFrame,interpretability:float,target_column:str,data_preprocessing:bool=False):
         self.data = data.copy()
         self.interpretability = interpretability
@@ -61,6 +63,7 @@ class AutoML:
         self.features_date = []
         self.features_bool = []
         self.ml_algorithms = pd.read_csv('ml_algorithms.csv')
+        self.ml_algorithms = self.ml_algorithms[self.ml_algorithms.algorithm != 'CategoricalNB']
         self.ml_algorithms_parameters = json.load(open('ml_algorithms_parameters.json','r'))
         for col in self.data.columns:
             if str(self.data[col].dtype) in ['float32','float64','int32','int64']:
@@ -210,20 +213,22 @@ class AutoML:
         X_num = self.X[self.features_num].copy()
         X_bool = self.X[self.features_bool].copy().values
         num_pars = {}
-        if type_num == 'min_max':
+        if type_num == 'min_max' and self.features_num:
             X_min = np.nanmin(X_num.values,axis=0)
             X_max = np.nanmax(X_num.values,axis=0)
             new_X_num = (X_num - X_min)/(X_max - X_min)
             num_pars = {'X_min':X_min,'X_max':X_max}
-        elif type_num == 'standard':
+        elif type_num == 'standard' and self.features_num:
             X_mean = np.nanmean(X_num.values,axis=0)
             X_std = np.nanstd(X_num.values,axis=0)
             new_X_num = (X_num - X_mean)/X_std
             num_pars = {'X_mean':X_mean,'X_std':X_std}
-        else:
+        elif self.features_num:
             raise RuntimeError("wrong preprocessing type")
+        else:
+            new_X_num = X_num
             
-        if type_cat == 'label':
+        if type_cat == 'label' and self.features_cat:
             for col in self.features_cat:
                 le = LabelEncoder()
                 le.fit(X_cat[col])
@@ -231,7 +236,7 @@ class AutoML:
                 self.encoders[col] = le
             X_cat = X_cat.values
        
-        elif type_cat == 'one_hot':
+        elif type_cat == 'one_hot' and self.features_cat:
             one_hots = []
             for col in self.features_cat:
                 le = OneHotEncoder(handle_unknown='ignore')
@@ -239,8 +244,10 @@ class AutoML:
                 one_hots.append(le.transform(X_cat[col].values.reshape(-1, 1)).toarray())
                 self.encoders[col] = le
             X_cat = np.concatenate(one_hots,axis=1)
-        else:
+        elif self.features_cat:
             raise RuntimeError("wrong preprocessing type")
+        else:
+            X_cat = X_cat.values
             
         if self.task == 'regression':
             if type_num_target == 'min_max':
@@ -344,27 +351,40 @@ class AutoML:
                 ml_algorithm = trial.suggest_categorical('ml_algorithm', algorithms_list)
                 ml_algorithm_type = self.ml_algorithms[self.ml_algorithms.algorithm==ml_algorithm]['type'].item()
             
+            
             if ml_algorithm_type in ['linear','svm','knn']:
-                type_cat = 'one_hot'
+                if self.features_cat:
+                    type_cat = 'one_hot'
+                else:
+                    type_cat = None
                 if self.task == 'binary_classification' or self.task == 'multi_classification':
                     type_cat_target = 'label'
                 else:
                     type_cat_target = None
             else:
-                type_cat = trial.suggest_categorical('type_cat', ['one_hot','label'])
+                if self.features_cat:
+                    type_cat = trial.suggest_categorical('type_cat', ['one_hot','label'])
+                else:
+                    type_cat = None
                 if self.task == 'binary_classification' or self.task == 'multi_classification':
                     type_cat_target = 'label'
                 else:
                     type_cat_target = None
 
             if ml_algorithm in ['ComplementNB','MultinomialNB','CategoricalNB']:
-                type_num = 'min_max'
+                if self.features_num:
+                    type_num = 'min_max'
+                else:
+                    type_num = None
                 if self.task == 'regression':
                     type_num_target = 'min_max'
                 else:
                     type_num_target = None
             else:
-                type_num = trial.suggest_categorical('type_num', ['min_max','standard'])
+                if self.features_num:
+                    type_num = trial.suggest_categorical('type_num', ['min_max','standard'])
+                else:
+                    type_num = None
                 if self.task == 'regression':
                     type_num_target = trial.suggest_categorical('type_num_target', ['min_max','standard'])
                 else:
@@ -430,30 +450,38 @@ class AutoML:
                     trial_parameters[key] = trial.suggest_float(ml_algorithm+"_"+key,val[0],val[1])
                 else:
                     trial_parameters[key] = trial.suggest_categorical(ml_algorithm+"_"+key,val)
-            model = eval(ml_algorithm)
-            model = model(**trial_parameters)
-            if self.task != 'regression':
-                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2,stratify=y ,random_state=42,shuffle=True)
+            
+            kf = KFold(n_splits=5)
+            if self.task in ['binary_classification','multi_classification']:
+                upsample = trial.suggest_categorical("upsampling_smote",[True,False])
             else:
-                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2,random_state=42,shuffle=True)
-            upsample = trial.suggest_categorical("upsampling_smote",[True,False])
-            if upsample:
-                smote = SMOTE(random_state=42)
-                X_train, y_train = smote.fit_resample(X_train, y_train)
+                upsample = False
+            scores = []
             log_message("debug","Fit "+ml_algorithm)
             log_message("debug","Trial_parameters: "+str(trial_parameters))
-            model.fit(X_train,y_train)
+            for i, (train_index, test_index) in enumerate(kf.split(X=X,y=y)):
+                X_train, X_test, y_train, y_test = X[train_index],X[test_index],y[train_index],y[test_index]
+
+                if upsample:
+                    smote = SMOTE(random_state=42)
+                    X_train, y_train = smote.fit_resample(X_train, y_train)
+                model = eval(ml_algorithm)
+                model = model(**trial_parameters)
+            
+                model.fit(X_train,y_train)  
+                y_pred = model.predict(X_test)
+                y_pred = self.postprocess(y_pred,pars,type_num_target,type_cat_target,False)
+                y_test = self.postprocess(y_test,pars,type_num_target,type_cat_target,False)
+                score = self.evaluate(y_pred=y_pred,y_true=y_test)
+                scores.append(score) 
+            score = sum(scores)/len(scores)
             log_message("debug","Fited "+ml_algorithm)
-            y_pred = model.predict(X_test)
-            y_pred = self.postprocess(y_pred,pars,type_num_target,type_cat_target,False)
-            y_test = self.postprocess(y_test,pars,type_num_target,type_cat_target,False)
-            score = self.evaluate(y_pred=y_pred,y_true=y_test)
             log_message("info","Score "+str(score))
             return score
         except Exception as e:
             log_message('error',e)
             log_message('error',trial_parameters)
-            return 0
+            return None
     
     def optimize(self,n_trials):
         for i in range(n_trials):
@@ -483,28 +511,43 @@ class AutoML:
         ml_algorithm = temp_parameters['ml_algorithm']
         ml_algorithm_type = self.ml_algorithms[self.ml_algorithms.algorithm==ml_algorithm]['type'].item()
         if ml_algorithm_type in ['linear','svm','knn']:
-            self.type_cat = 'one_hot'
+            if self.features_cat:
+                self.type_cat = 'one_hot'
+            else:
+                self.type_cat = None
+
             if self.task == 'binary_classification' or self.task == 'multi_classification':
                 self.type_cat_target = 'label'
             else:
                 self.type_cat_target = None
         else:
-            self.type_cat = temp_parameters['type_cat']
-            del temp_parameters['type_cat']
+            if self.features_cat:
+                self.type_cat = temp_parameters['type_cat']
+                del temp_parameters['type_cat']
+            else:
+                self.type_cat = None
+            
             if self.task == 'binary_classification' or self.task == 'multi_classification':
                 self.type_cat_target = 'label'
             else:
                 self.type_cat_target = None   
             
         if ml_algorithm in ['ComplementNB','MultinomialNB','CategoricalNB']:
-            self.type_num = 'min_max'
+            if self.features_num:
+                self.type_num = 'min_max'
+            else:
+                self.type_num = None
             if self.task == 'regression':
                 self.type_num_target = 'min_max'
             else:
                 self.type_num_target = None
         else:
-            self.type_num = temp_parameters['type_num']
-            del temp_parameters['type_num']
+            if self.features_num:
+                self.type_num = temp_parameters['type_num']
+                del temp_parameters['type_num']
+            else:
+                self.type_num = None
+            
             if self.task == 'regression':
                 self.type_num_target = temp_parameters['type_num_target']
                 del temp_parameters['type_num_target']
@@ -532,15 +575,32 @@ class AutoML:
                                    type_num_target=self.type_num_target)
 
         self.numarical_preprocessing_parameters = pars
-        upsample = temp_parameters["upsampling_smote"]
-        del temp_parameters['upsampling_smote']
-        if upsample:
-            smote = SMOTE(random_state=42)
-            X_train, y_train = smote.fit_resample(X_train, y_train)
-        model = eval(ml_algorithm)
-        model = model(**temp_parameters)
-        model.fit(X,y)
-        self.model = model
+        if self.task in ['binary_classification','multi_classification']:
+            upsample = temp_parameters["upsampling_smote"]
+            del temp_parameters['upsampling_smote']
+            if upsample:
+                smote = SMOTE(random_state=42)
+                X, y = smote.fit_resample(X, y)
+
+        kf = KFold(n_splits=5)
+        models = []
+        for i, (train_index, test_index) in enumerate(kf.split(X)):
+            model = eval(ml_algorithm)
+            model = model(**temp_parameters)
+            model.fit(X[train_index],y[train_index])
+            y_pred = model.predict(X[test_index])
+            y_pred = self.postprocess(y_pred,pars,self.type_num_target,self.type_cat_target,False)
+            y_test = self.postprocess(y[test_index],pars,self.type_num_target,self.type_cat_target,False)
+            score = self.evaluate(y_pred=y_pred,y_true=y_test)
+            log_message('info',f'Fold {i} with score {score}')
+            models.append(model)
+        models = [ (f"model_{i}",j) for i,j in enumerate(models)]
+        if self.task in ['binary_classification','multi_classification']:
+            voting_model = VotingClassifier(estimators=models, voting='hard')
+        else:
+            voting_model = VotingRegressor(estimators=models)
+        voting_model.fit(X, y)
+        self.model = voting_model
         return vis.plot_optimization_history(self.study)
            
     def save(self,model_name):
@@ -596,34 +656,38 @@ class Module():
             X_cat = data[self.features_cat].copy()
             X_num = data[self.features_num].copy()
             X_bool = data[self.features_bool].copy().values
-            if self.type_num == 'min_max':
+            if self.type_num == 'min_max' and self.features_num:
                 X_min = self.preprocessing_parameters['X_min']
                 X_max = self.preprocessing_parameters['X_max']
                 new_X_num = (X_num - X_min)/(X_max - X_min)
     
-            elif self.type_num == 'standard':
+            elif self.type_num == 'standard' and self.features_num:
                 X_mean = self.preprocessing_parameters['X_mean']
                 X_std = self.preprocessing_parameters['X_std']
                 new_X_num = (X_num - X_mean)/X_std
         
-            else:
+            elif self.features_num:
                 raise RuntimeError("wrong preprocessing type")
-                
-            if self.type_cat == 'label':
+            else:
+                new_X_num = X_num
+            if self.type_cat == 'label' and self.features_cat:
                 for col in self.features_cat:
                     le = self.encoders[col]
                     X_cat.loc[:,col] = le.transform(X_cat[col])
 
                 X_cat = X_cat.values
         
-            elif self.type_cat == 'one_hot':
+            elif self.type_cat == 'one_hot' and self.features_cat:
                 one_hots = []
                 for col in self.features_cat:
                     le = self.encoders[col]
                     one_hots.append(le.transform(X_cat[col].values.reshape(-1, 1)).toarray())
                 X_cat = np.concatenate(one_hots,axis=1)
-            else:
+            elif self.features_cat:
                 raise RuntimeError("wrong preprocessing type")
+            else:
+                X_cat = X_cat.values
+
             input_data = np.concatenate([X_cat,new_X_num,X_bool],axis=1)
             output = self.model.predict(input_data)
             if self.task == 'regression':

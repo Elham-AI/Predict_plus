@@ -1,7 +1,7 @@
 from fastapi import FastAPI,Request
 import pandas as pd
 import pickle
-from nelc_autoML import Module
+from autoML import Module
 app = FastAPI()
 @app.post("/<model_name>/predict")
 async def predict(request:Request):      

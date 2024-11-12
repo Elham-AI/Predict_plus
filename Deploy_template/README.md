@@ -4,7 +4,7 @@
 
 To get started with the [API Name], follow these steps:
 
-**Base URL**: All API requests should be made to the base URL: `http://localhost:<port>`
+**Base URL**: All API requests should be made to the base URL: `http://localhost:<port>/<model_name>`
 
 ## Endpoints
 

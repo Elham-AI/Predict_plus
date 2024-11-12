@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from nelc_autoML import *
+from autoML import *
 from datetime import datetime
 import time
 import shutil
@@ -198,9 +198,18 @@ def train_page():
                                 port = 8000
                             else:
                                 commands = containers['COMMAND'].tolist()
-                                commands = [int(i[-1]) for i in commands]
-                                port = max(commands)+1
-                                ports = {f'{port}/tcp':port} 
+                                ports = []
+                                for i in commands:
+                                    try:
+                                        ports.append(int(i[-1]))
+                                    except:
+                                        pass
+                                if ports:
+                                    port = max(ports)+1
+                                    ports = {f'{port}/tcp':port}
+                                else:
+                                    ports = {'8000/tcp': 8000}
+                                    port = 8000
 
                             # Edit the readme.md file
                             with open(os.path.join(dist,'README.md'),'r') as f:
@@ -211,6 +220,7 @@ def train_page():
                                     input_data[col] = input_data[col].astype(str)
                             file_content = file_content.replace("<input_json>",json.dumps(input_data.to_dict('records'),indent=4))
                             file_content = file_content.replace("<port>",str(port))
+                            file_content = file_content.replace("<model_name>",model_name)
                             with open(os.path.join(dist,'README.md'),'w') as f:
                                 f.write(file_content)
 
@@ -224,7 +234,7 @@ def train_page():
 
                             shutil.copyfile(os.path.join('Models',f"{model_name}_model.pkl"), os.path.join(dist,f"{model_name}_model.pkl"))
                             shutil.copyfile(os.path.join('Models',f"{model_name}_tuner.pkl"), os.path.join(dist,f"{model_name}_tuner.pkl"))
-                            shutil.copyfile('nelc_autoML.py', os.path.join(dist,'nelc_autoML.py'))
+                            shutil.copyfile('autoML.py', os.path.join(dist,'autoML.py'))
                               
 
                             image_id = build_image(path=dist,tag=model_name)
@@ -282,8 +292,8 @@ def deployed_page():
         deleted_models = set(images['REPOSITORY'].tolist()).difference(deployed_models)
         st.markdown(df.style.hide(axis="index").to_html(), unsafe_allow_html=True)
         st.subheader("Make action")
-         
-        model_name = st.selectbox("Model name",options=images['IMAGE'].tolist())
+        models_names = [row['IMAGE'].split(":")[0] + " ("+row['CONTAINER ID']+")" for i,row in df.iterrows()]
+        model_name = st.selectbox("Model name",options=models_names)
         col1, col2, col3 = st.columns(3)
         with col1:
             _,sub_col1,_ = st.columns(3)
@@ -302,30 +312,32 @@ def deployed_page():
         
         if stop and model_name:
             with st.spinner(""):
-                container_ids = df[df['IMAGE']==model_name]['CONTAINER ID'].tolist()
-                for container_id in container_ids:
-                    stop_container(container_id=container_id)
+                start = model_name.index("(")
+                container_id = model_name[start+1:-1]
+                stop_container(container_id=container_id)
                 st.success("The model is stopped")
                 time.sleep(1)
                 st.rerun()
 
         elif start and model_name: 
             with st.spinner(""):
-                container_ids = df[df['IMAGE']==model_name]['CONTAINER ID'].tolist()
-                for container_id in container_ids:
-                    start_container(container_id=container_id)
+                start = model_name.index("(")
+                container_id = model_name[start+1:-1]
+                start_container(container_id=container_id)
                 st.success("The model is running")
                 time.sleep(1)
                 st.rerun()
         elif delete and model_name:
-            if df[df['IMAGE']==model_name]['STATUS'].tolist()[0] == 'running':
+            start = model_name.index("(")
+            container_id = model_name[start+1:-1]
+            if df[df['CONTAINER ID']==container_id]['STATUS'].tolist()[0] == 'running':
                 st.error("Please stope the model first before deleting it")
             else:
-                with st.spinner(""):
-                    container_ids = df[df['IMAGE']==model_name]['CONTAINER ID'].tolist()
-                    for container_id in container_ids:
-                        delete_container(container_id)
-                    delete_image(model_name)
+                with st.spinner(""): 
+                    repo_name = model_name[0:start].strip()
+                    delete_container(container_id)
+                    if df[df['REPOSITORY']==repo_name].empty:
+                        delete_image(model_name)
                     shutil.rmtree(os.path.join('Deployments',model_name.split(':')[0]))
                     os.remove(os.path.join('Models',f"""{model_name.split(':')[0]}_model.pkl"""))
                     os.remove(os.path.join('Models',f"""{model_name.split(':')[0]}_tuner.pkl"""))
@@ -334,8 +346,9 @@ def deployed_page():
                     st.rerun()
         if model_name:
             st.divider()
+            start = model_name.index("(")
             try:
-                with open(os.path.join('Deployments',model_name.split(':')[0],'README.md'),'r') as f:
+                with open(os.path.join('Deployments',model_name[0:start].strip(),'README.md'),'r') as f:
                     file_content = f.read()
                 st.markdown(file_content)
             except FileNotFoundError as e:
