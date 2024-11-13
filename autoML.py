@@ -12,7 +12,7 @@ import os
 from datetime import timedelta
 from sklearn.model_selection import KFold
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_absolute_percentage_error,mean_absolute_error,r2_score,f1_score
+from sklearn.metrics import mean_absolute_percentage_error,mean_absolute_error,r2_score,f1_score,cohen_kappa_score,log_loss
 from sklearn.ensemble import VotingRegressor,VotingClassifier
 from sklearn.linear_model import *
 from sklearn.naive_bayes import *
@@ -63,7 +63,7 @@ class AutoML:
         self.features_date = []
         self.features_bool = []
         self.ml_algorithms = pd.read_csv('ml_algorithms.csv')
-        self.ml_algorithms = self.ml_algorithms[self.ml_algorithms.algorithm != 'CategoricalNB']
+        self.ml_algorithms = self.ml_algorithms[self.ml_algorithms.active == 1]
         self.ml_algorithms_parameters = json.load(open('ml_algorithms_parameters.json','r'))
         for col in self.data.columns:
             if str(self.data[col].dtype) in ['float32','float64','int32','int64']:
@@ -328,7 +328,8 @@ class AutoML:
     
     def evaluate(self,y_true,y_pred):
         if self.task == 'multi_classification':
-            score = f1_score(y_true=y_true,y_pred=y_pred,average='weighted')
+            score = cohen_kappa_score(y_true, y_pred, weights='quadratic')
+            # score = f1_score(y_true=y_true,y_pred=y_pred,average='weighted')
         elif self.task == 'binary_classification':
             score = f1_score(y_true=y_true,y_pred=y_pred)
         elif self.task == 'regression':
