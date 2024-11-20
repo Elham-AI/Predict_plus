@@ -312,8 +312,8 @@ def deployed_page():
         
         if stop and model_name:
             with st.spinner(""):
-                start = model_name.index("(")
-                container_id = model_name[start+1:-1]
+                start_ind = model_name.index("(")
+                container_id = model_name[start_ind+1:-1]
                 stop_container(container_id=container_id)
                 st.success("The model is stopped")
                 time.sleep(1)
@@ -321,20 +321,20 @@ def deployed_page():
 
         elif start and model_name: 
             with st.spinner(""):
-                start = model_name.index("(")
-                container_id = model_name[start+1:-1]
+                start_ind = model_name.index("(")
+                container_id = model_name[start_ind+1:-1]
                 start_container(container_id=container_id)
                 st.success("The model is running")
                 time.sleep(1)
                 st.rerun()
         elif delete and model_name:
-            start = model_name.index("(")
-            container_id = model_name[start+1:-1]
+            start_ind = model_name.index("(")
+            container_id = model_name[start_ind+1:-1]
             if df[df['CONTAINER ID']==container_id]['STATUS'].tolist()[0] == 'running':
                 st.error("Please stope the model first before deleting it")
             else:
                 with st.spinner(""): 
-                    repo_name = model_name[0:start].strip()
+                    repo_name = model_name[0:start_ind].strip()
                     delete_container(container_id)
                     if df[df['REPOSITORY']==repo_name].empty:
                         delete_image(model_name)
@@ -346,9 +346,9 @@ def deployed_page():
                     st.rerun()
         if model_name:
             st.divider()
-            start = model_name.index("(")
+            start_ind = model_name.index("(")
             try:
-                with open(os.path.join('Deployments',model_name[0:start].strip(),'README.md'),'r') as f:
+                with open(os.path.join('Deployments',model_name[0:start_ind].strip(),'README.md'),'r') as f:
                     file_content = f.read()
                 st.markdown(file_content)
             except FileNotFoundError as e:
@@ -366,12 +366,15 @@ def batch_inference_page():
         df = df[df['STATUS']=='running']
         st.markdown(df.style.hide(axis="index").to_html(), unsafe_allow_html=True)
         st.subheader("Choose the model")
-         
-        model_name = st.selectbox("Model name",options=images['IMAGE'].tolist())
-        port = df[df['IMAGE']==model_name]['COMMAND'].tolist()[0]
-        port = int(port[-1])
+        models_names = [row['IMAGE'].split(":")[0] + " ("+row['CONTAINER ID']+")" for i,row in df.iterrows()]
+        model_name = st.selectbox("Model name",options=models_names)
+        
 
         if model_name:
+            start_ind = model_name.index("(")
+            container_id = model_name[start_ind+1:-1]
+            port = df[df['CONTAINER ID']==container_id]['COMMAND'].tolist()[0]
+            port = int(port[-1])
             st.divider()
             st.subheader("Uplaod the file to make predictions")
             st.session_state['file_inference'] = st.file_uploader("Upload CSV file", type=["csv"])
@@ -381,12 +384,16 @@ def batch_inference_page():
                 st.dataframe(df.head())
                 df_dict = {"data" : df.to_dict('records')}
                 if st.button("Make prediction"):
-                    model_name_url = model_name.split(":")[0]
-                    url = f'http://localhost:{port}/{model_name_url}/predict'
-                    header={}
-                    payload = json.dumps(df_dict)
-                    response = requests.post(url,headers=header,data=payload)
-                    st.session_state['inference_predictions'] = response.json()['predictions']
+                    try:
+                        with st.spinner("Cooking the predictions ..."):
+                            model_name_url = model_name[0:start_ind].strip()
+                            url = f'http://localhost:{port}/{model_name_url}/predict'
+                            header={}
+                            payload = json.dumps(df_dict)
+                            response = requests.post(url,headers=header,data=payload)
+                            st.session_state['inference_predictions'] = response.json()['predictions']
+                    except Exception as e:
+                        st.error(response.json()['ERROR'])
 
                 if st.session_state.get('inference_predictions'):
                     st.write("Data with Prediction:")
