@@ -14,7 +14,9 @@ os.makedirs('Deployments',exist_ok=True)
 
 st.set_page_config(
 layout="wide",
-page_icon="assests/logo.svg"
+# page_icon="assests/logo.svg"
+page_icon="/home/faris1/Desktop/logo-en.png"
+
 )
 
 #import base64
@@ -257,7 +259,9 @@ def train_page():
 def home_page():
     _,col,_ = st.columns(3)
     with col:
-        st.image("assests/logo.svg",use_column_width=True)
+        # st.image("assests/logo.svg",use_column_width=True)
+        st.image("/home/faris1/Desktop/logo-en.svg",use_column_width=True)
+
     st.title("Welcome to the Auto ML Tool!")
     st.markdown("""
     ### Automate Your Machine Learning Journey
@@ -456,7 +460,8 @@ if not st.session_state.get("CURRENT_PAGE"):
     st.session_state["CURRENT_PAGE"] = "Home"
 
 st.session_state['CURRENT_PAGE'] = st_navbar(["Home", "Train and deploy", "Deployed models","Make prediction"],
-                 logo_path="assests/logo.svg",
+                #  logo_path="assests/logo.svg",
+                 logo_path="/home/faris1/Desktop/logo-en.svg",
                 #  selected = st.session_state.get("CURRENT_PAGE"),
                 #  styles=styles,
                 #   options=options,

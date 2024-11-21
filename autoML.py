@@ -2,6 +2,7 @@ import optuna
 import pandas as pd
 import numpy as np
 from lightgbm import *
+from sklearn.neural_network import *
 from catboost import CatBoostClassifier,CatBoostRegressor
 from imblearn.over_sampling import SMOTE
 from tqdm import tqdm

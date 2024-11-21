@@ -40,3 +40,5 @@ LGBMClassifier,tree,0,1,1,1
 LGBMRegressor,tree,1,0,0,1
 CatBoostClassifier,tree,0,1,1,1
 CatBoostRegressor,tree,1,0,0,1
+MLPClassifier,nn,0,1,1,1
+MLPRegressor,nn,1,0,0,

@@ -39,5 +39,7 @@
     "LGBMClassifier": {"boosting_type":["gbdt","dart","rf"],"num_leaves":[2,50],"max_depth":[0,100],"learning_rate":[0.01,1],"n_estimators":[2,1000],"class_weight":["balanced",null],"min_split_gain":[0.0,0.5],"min_child_weight":[0.0001,0.1],"min_child_samples":[10,50],"reg_alpha":[0.0,0.5],"reg_lambda":[0.0,0.5],"bagging_freq": [1, 5], "bagging_fraction": [0.5, 0.9],"feature_fraction": [0.5, 0.9]},
     "LGBMRegressor": {"boosting_type":["gbdt","dart","rf"],"num_leaves":[2,50],"max_depth":[0,100],"learning_rate":[0.01,1],"n_estimators":[2,1000],"min_split_gain":[0.0,0.5],"min_child_weight":[0.0001,0.1],"min_child_samples":[10,50],"reg_alpha":[0.0,0.5],"reg_lambda":[0.0,0.5]},
     "CatBoostClassifier": {"learning_rate":[0.001,1]},
-    "CatBoostRegressor": {"learning_rate":[0.001,1]}
+    "CatBoostRegressor": {"learning_rate":[0.001,1]},
+    "MLPClassifier":{"hidden_layer_sizes":[3,256],"activation":["relu","tanh","logistic"],"solver":["lbfgs","sgd","adam"],"learning_rate":["invscaling","adaptive"],"learning_rate_init":[0.000001,0.01]},
+    "MLPRegressor":{"hidden_layer_sizes":[3,256],"activation":["relu","tanh","logistic"],"solver":["lbfgs","sgd","adam"],"learning_rate":["invscaling","adaptive"],"learning_rate_init":[0.000001,0.01]}
 }
