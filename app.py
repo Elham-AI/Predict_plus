@@ -8,6 +8,7 @@ from streamlit_navigation_bar import st_navbar
 import subprocess
 import requests
 from docker_utils import *
+from nginx_utils import add_model_to_nginx_config, delete_model_from_nginx_config
 os.makedirs('Models',exist_ok=True)
 os.makedirs('Deployments',exist_ok=True)
 
@@ -70,20 +71,39 @@ def train_page():
     else:
         if st.sidebar.button("Upload another file"):
             st.session_state['file'] = st.sidebar.file_uploader("Upload CSV file", type=["csv"])
-            if st.session_state.get('file'):
-                st.session_state['file_updated'] = True
-                st.rerun()
+            del st.session_state['TARGET_COLUMN']
+            del st.session_state['ID_COLUMNS']
+            del st.session_state['TRAINING_LEVEL']
+            st.session_state['file_updated'] = True
+            st.rerun()
+
+            
     if st.session_state.get('file')  is not None:
         if st.session_state.get('file_updated'):
             df = pd.read_csv(st.session_state['file'] )
             st.session_state['data'] = df
             st.session_state['file_updated'] = False
+            st.rerun()
         if isinstance(st.session_state.get('data'),pd.DataFrame):
             st.write("Data Preview", st.session_state['data'].head())
             st.write(f"""The data has {st.session_state['data'].shape[0]} records""")
 
         # Select target column
-        target_column = st.sidebar.selectbox("Select Target Column", options=st.session_state['data'].columns,index = st.session_state.get('TARGET_COLUMN_INDEX') if st.session_state.get('TARGET_COLUMN_INDEX') else 0)
+        if 'TARGET_COLUMN' not in st.session_state:
+            st.session_state['TARGET_COLUMN'] = st.session_state['data'].columns[0]  # Default to the first column
+
+        target_column = st.sidebar.selectbox(
+            "Select Target Column",
+            options=st.session_state['data'].columns,
+            index=list(st.session_state['data'].columns).index(st.session_state['TARGET_COLUMN'])
+        )
+
+        # Update the session state only if the selection changes
+        if target_column != st.session_state['TARGET_COLUMN']:
+            st.session_state['TARGET_COLUMN'] = target_column
+            st.session_state['TARGET_COLUMN_INDEX'] = list(st.session_state['data'].columns).index(target_column)
+            st.rerun()
+
         st.warning("NOTE: Selecting the ID columns will improve model performence")
         if st.session_state.get('ID_COLUMNS'):
             if isinstance(st.session_state.get('ID_COLUMNS'),list):
@@ -92,11 +112,19 @@ def train_page():
                 cols = list(set(list(st.session_state['data'].columns) + [st.session_state.get('ID_COLUMNS')]))
         else:
             cols = list(st.session_state['data'].columns)
-        id_columns = st.sidebar.multiselect("Select ID columns", options=cols,default = st.session_state.get('ID_COLUMNS') if st.session_state.get('ID_COLUMNS') else None)
-        st.session_state['ID_COLUMNS'] = id_columns
-        st.session_state['TARGET_COLUMN_INDEX'] = list(st.session_state['data'].columns).index(target_column)
-        training_level = st.sidebar.number_input(f"Training level",max_value=10000,min_value=2,value=st.session_state.get('TRAINING_LEVEL') if st.session_state.get('TRAINING_LEVEL') else 500)
-        st.session_state['TRAINING_LEVEL'] = training_level
+        if 'ID_COLUMNS' not in st.session_state:
+            st.session_state['ID_COLUMNS'] = None
+        id_columns = st.sidebar.multiselect("Select ID columns", options=cols,default = st.session_state['ID_COLUMNS'])
+        if id_columns != st.session_state['ID_COLUMNS']:
+            st.session_state['ID_COLUMNS'] = id_columns
+            st.rerun()
+
+        if 'TRAINING_LEVEL' not in st.session_state:
+            st.session_state['TRAINING_LEVEL'] = 500
+        training_level = st.sidebar.number_input(f"Training level",max_value=10000,min_value=2,value=st.session_state.get('TRAINING_LEVEL'))
+        if training_level != st.session_state['TRAINING_LEVEL']:
+            st.session_state['TRAINING_LEVEL'] = training_level
+            st.rerun()
         
         # Train model
         if st.sidebar.button("Train Model"):
@@ -108,7 +136,7 @@ def train_page():
             st.error("If you leave the page you will lose the training progress, so please do not leave the page until the training is finished")
             progress_text = "Training in progress {p}%. Please wait."
             progress_bar = st.progress(0, text=progress_text.format(p=0))
-            tuner = AutoML(data=st.session_state['data'],data_preprocessing=True,target_column=target_column,interpretability=1)
+            tuner = AutoML(data=st.session_state['data'],data_preprocessing=True,target_column=st.session_state['TARGET_COLUMN'],interpretability=1)
             tuner.init_study()
             print("study init")
             for i in tuner.optimize(n_trials=training_level):
@@ -220,7 +248,7 @@ def train_page():
                             for col in dates:
                                 if col != target_column:
                                     input_data[col] = input_data[col].astype(str)
-                            file_content = file_content.replace("<input_json>",json.dumps(input_data.to_dict('records'),indent=4))
+                            file_content = file_content.replace("<input_json>",json.dumps({"data":input_data.to_dict('records')},indent=4))
                             file_content = file_content.replace("<port>",str(port))
                             file_content = file_content.replace("<model_name>",model_name)
                             with open(os.path.join(dist,'README.md'),'w') as f:
@@ -243,6 +271,7 @@ def train_page():
                             run_container(image=image_id,ports=ports)
                             st.success(f"Docker image built successfully")
                             st.session_state['DEPLOYED'] = True
+                            add_model_to_nginx_config(domain_name="nelc.ai.gov.sa",model_name=model_name,container_port=port)
                         else:
                             st.error("Please enter the model name to deploy")
 
@@ -334,6 +363,7 @@ def deployed_page():
         elif delete and model_name:
             start_ind = model_name.index("(")
             container_id = model_name[start_ind+1:-1]
+            port = int(df[df['CONTAINER ID']==container_id]['COMMAND'].tolist()[0][-1])
             if df[df['CONTAINER ID']==container_id]['STATUS'].tolist()[0] == 'running':
                 st.error("Please stope the model first before deleting it")
             else:
@@ -342,12 +372,14 @@ def deployed_page():
                     delete_container(container_id)
                     if df[df['REPOSITORY']==repo_name].empty:
                         delete_image(model_name)
-                    shutil.rmtree(os.path.join('Deployments',model_name.split(':')[0]))
-                    os.remove(os.path.join('Models',f"""{model_name.split(':')[0]}_model.pkl"""))
-                    os.remove(os.path.join('Models',f"""{model_name.split(':')[0]}_tuner.pkl"""))
+                    shutil.rmtree(os.path.join('Deployments',repo_name))
+                    os.remove(os.path.join('Models',f"""{repo_name}_model.pkl"""))
+                    os.remove(os.path.join('Models',f"""{repo_name}_tuner.pkl"""))
+                    delete_model_from_nginx_config("nelc.ai.gov.sa",model_name=repo_name,container_port=port)
                     st.success("The model is deleted")
                     time.sleep(1)
                     st.rerun()
+
         if model_name:
             st.divider()
             start_ind = model_name.index("(")
