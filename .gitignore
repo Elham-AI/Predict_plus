@@ -5,3 +5,4 @@ test_data
 catboost_info
 venv
 .venv
+.env
