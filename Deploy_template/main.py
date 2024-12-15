@@ -3,7 +3,7 @@ import pandas as pd
 import pickle
 from autoML import Module
 app = FastAPI()
-@app.post("/<model_name>/predict")
+@app.post("/<user>/<model_name>/predict")
 async def predict(request:Request):      
     """
     data shape is 
