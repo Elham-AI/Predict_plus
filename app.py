@@ -32,9 +32,9 @@ os.makedirs('Models', exist_ok=True)
 os.makedirs('Deployments', exist_ok=True)
 os.makedirs('tmp', exist_ok=True)
 os.makedirs('tmp/status', exist_ok=True)
-def deploy():
+def deploy(model_id,user_id,model_name):
     try:
-        dist = os.path.join('Deployments', model_name)
+        dist = os.path.join('Deployments', model_id)
         os.makedirs(dist, exist_ok=True)
 
         # Copy template files and replace placeholders
@@ -44,11 +44,41 @@ def deploy():
 
         with open(os.path.join(dist, 'main.py'), 'r') as f:
             file_content = f.read()
-        file_content = file_content.replace("<model_name>", model_name)
+        file_content = file_content.replace("<model_name>", model_id)
         file_content = file_content.replace("<user>", user_id)
         with open(os.path.join(dist, 'main.py'), 'w') as f:
             f.write(file_content)
+            
+        with open(os.path.join(dist,'README.md'),'r') as f:
+            file_content = f.read()
+        file_content = file_content.replace("[API Name]",model_name)
+        for col in dates:
+            if col != target_column:
+                input_data[col] = input_data[col].astype(str)
+        file_content = file_content.replace("<input_json>",json.dumps({"data":input_data.to_dict('records')},indent=4))
+        file_content = file_content.replace("<port>",str(port))
+        file_content = file_content.replace("<model_name>",model_name)
+        with open(os.path.join(dist,'README.md'),'w') as f:
+            f.write(file_content)
 
+        
+        with open(os.path.join(dist,'dockerfile'),'r') as f:
+            file_content = f.read()
+
+        file_content = file_content.replace("<port>",str(port))
+        with open(os.path.join(dist,'dockerfile'),'w') as f:
+            f.write(file_content)
+
+        shutil.copyfile(os.path.join('Models',f"{model_name}_model.pkl"), os.path.join(dist,f"{model_name}_model.pkl"))
+        shutil.copyfile(os.path.join('Models',f"{model_name}_tuner.pkl"), os.path.join(dist,f"{model_name}_tuner.pkl"))
+        shutil.copyfile('autoML.py', os.path.join(dist,'autoML.py'))
+            
+
+        image_id = build_image(path=dist,tag=model_name)
+        run_container(image=image_id,ports=ports)
+        st.success(f"Docker image built successfully")
+        st.session_state['DEPLOYED'] = True
+        add_model_to_nginx_config(domain_name="nelc.ai.gov.sa",model_name=model_name,container_port=port)
         _, containers = get_images_and_containers()
         port = 8000 if containers.empty else max([int(c[-1]) for c in containers['COMMAND'] if c[-1].isdigit()] or [8000]) + 1
 
