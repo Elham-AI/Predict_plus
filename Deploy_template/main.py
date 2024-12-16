@@ -18,9 +18,9 @@ async def predict(request:Request):
     data = await request.json()
     data = data['data']
     data = pd.DataFrame(data)
-    with open("<model_name>_tuner.pkl",'rb') as f: 
+    with open("<model_id>_tuner.pkl",'rb') as f: 
         tuner = pickle.load(f)
-    with open("<model_name>_model.pkl",'rb') as f: 
+    with open("<model_id>_model.pkl",'rb') as f: 
         model = pickle.load(f)
     tuner.model = model
     dates_cols = tuner.features_date
@@ -35,6 +35,6 @@ async def predict(request:Request):
     prediction = {"predictions":prediction.tolist()}
     return prediction
 
-@app.get("/<model_name>/ping")
+@app.get("/<user>/<model_name>/ping")
 async def ping(request:Request):
     return {"message":"healthy"}

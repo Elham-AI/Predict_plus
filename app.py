@@ -31,9 +31,12 @@ s3_client = boto3.client(
 os.makedirs('Models', exist_ok=True)
 os.makedirs('Deployments', exist_ok=True)
 os.makedirs('tmp', exist_ok=True)
-os.makedirs('tmp/status', exist_ok=True)
+os.makedirs('tmp/progresses', exist_ok=True)
+
 def deploy(model_id,user_id,model_name):
     try:
+        _, containers = get_images_and_containers()
+        port = 8000 if containers.empty else max([int(c[-1]) for c in containers['COMMAND'] if c[-1].isdigit()] or [8000]) + 1
         dist = os.path.join('Deployments', model_id)
         os.makedirs(dist, exist_ok=True)
 
@@ -44,22 +47,23 @@ def deploy(model_id,user_id,model_name):
 
         with open(os.path.join(dist, 'main.py'), 'r') as f:
             file_content = f.read()
-        file_content = file_content.replace("<model_name>", model_id)
+        file_content = file_content.replace("<model_name>", model_name)
+        file_content = file_content.replace("<model_id>", model_id)
         file_content = file_content.replace("<user>", user_id)
         with open(os.path.join(dist, 'main.py'), 'w') as f:
             f.write(file_content)
             
-        with open(os.path.join(dist,'README.md'),'r') as f:
-            file_content = f.read()
-        file_content = file_content.replace("[API Name]",model_name)
-        for col in dates:
-            if col != target_column:
-                input_data[col] = input_data[col].astype(str)
-        file_content = file_content.replace("<input_json>",json.dumps({"data":input_data.to_dict('records')},indent=4))
-        file_content = file_content.replace("<port>",str(port))
-        file_content = file_content.replace("<model_name>",model_name)
-        with open(os.path.join(dist,'README.md'),'w') as f:
-            f.write(file_content)
+        # with open(os.path.join(dist,'README.md'),'r') as f:
+        #     file_content = f.read()
+        # file_content = file_content.replace("[API Name]",model_name)
+        # for col in dates:
+        #     if col != target_column:
+        #         input_data[col] = input_data[col].astype(str)
+        # file_content = file_content.replace("<input_json>",json.dumps({"data":input_data.to_dict('records')},indent=4))
+        # file_content = file_content.replace("<port>",str(port))
+        # file_content = file_content.replace("<model_name>",model_name)
+        # with open(os.path.join(dist,'README.md'),'w') as f:
+        #     f.write(file_content)
 
         
         with open(os.path.join(dist,'dockerfile'),'r') as f:
@@ -69,44 +73,39 @@ def deploy(model_id,user_id,model_name):
         with open(os.path.join(dist,'dockerfile'),'w') as f:
             f.write(file_content)
 
-        shutil.copyfile(os.path.join('Models',f"{model_name}_model.pkl"), os.path.join(dist,f"{model_name}_model.pkl"))
-        shutil.copyfile(os.path.join('Models',f"{model_name}_tuner.pkl"), os.path.join(dist,f"{model_name}_tuner.pkl"))
+        shutil.copyfile(os.path.join('Models',f"{model_id}_model.pkl"), os.path.join(dist,f"{model_name}_model.pkl"))
+        shutil.copyfile(os.path.join('Models',f"{model_id}_tuner.pkl"), os.path.join(dist,f"{model_name}_tuner.pkl"))
         shutil.copyfile('autoML.py', os.path.join(dist,'autoML.py'))
-            
-
-        image_id = build_image(path=dist,tag=model_name)
-        run_container(image=image_id,ports=ports)
-        st.success(f"Docker image built successfully")
-        st.session_state['DEPLOYED'] = True
-        add_model_to_nginx_config(domain_name="nelc.ai.gov.sa",model_name=model_name,container_port=port)
-        _, containers = get_images_and_containers()
-        port = 8000 if containers.empty else max([int(c[-1]) for c in containers['COMMAND'] if c[-1].isdigit()] or [8000]) + 1
-
-        add_model_to_nginx_config("yourdomain.com", model_name, port)
+        
+        try:
+            add_model_to_nginx_config(domain_name="nelc.ai.gov.sa",model_name=model_name,container_port=port)
+        except Exception as e:
+            print(e)
 
         image_id = build_image(path=dist, tag=model_name)
         run_container(image=image_id, ports={f'{port}/tcp': port})
 
-        return {"message": "Model deployed successfully", "url": f"http://yourdomain.com:{port}/{model_name}/predict"}
+        return port
     except Exception as e:
         return None
-def training_in_background(tuner:AutoML, training_level,dataset_id,model_id):
-    name = f"{dataset_id}-{model_id}"
-    with open(f"tmp/status/{name}.json", "w") as file:
+    
+def training_in_background(tuner:AutoML, training_level,model_id,model_name,user_id):
+    name = f"{model_id}"
+    with open(f"tmp/progresses/{name}.json", "w") as file:
         json.dump({"progress":0.0}, file, indent=4)
     
     for i in tuner.optimize(n_trials=training_level):
-        with open(f"tmp/status/{name}.json", "r") as file:
-            status = json.load(file)
-        status['progress'] = i/training_level
-        with open(f"tmp/status/{name}.json", "w") as file:
-            json.dump(status, file, indent=4)
+        with open(f"tmp/progresses/{name}.json", "r") as file:
+            progress = json.load(file)
+        progress['progress'] = i/training_level
+        with open(f"tmp/progresses/{name}.json", "w") as file:
+            json.dump(progress, file, indent=4)
     tuner.final_training()
-    with open(f"tmp/status/{name}.json", "r") as file:
-        status = json.load(file)
-    status['progress'] = 100
-    with open(f"tmp/status/{name}.json", "w") as file:
-        json.dump(status, file, indent=4)
+    with open(f"tmp/progresses/{name}.json", "r") as file:
+        progress = json.load(file)
+    progress['progress'] = 100
+    with open(f"tmp/progresses/{name}.json", "w") as file:
+        json.dump(progress, file, indent=4)
     model_score = tuner.score
     
     tuner.save(name)
@@ -116,13 +115,15 @@ def training_in_background(tuner:AutoML, training_level,dataset_id,model_id):
     s3_key_tuner = f"models/{name}_tuner.pkl"
     s3_client.upload_file(f"Models/{name}_model.pkl", AWS_S3_BUCKET, s3_key_model)
     s3_client.upload_file(f"Models/{name}_tuner.pkl", AWS_S3_BUCKET, s3_key_tuner)
+    port = deploy(model_id=model_id,model_name=model_name,user_id=user_id)
     os.remove(f"Models/{name}_tuner.pkl")
     os.remove(f"Models/{name}_tuner.pkl")
         
     update_data = {
-        "port": 8080,
-        "target_column": "updated_column",
-        "training_level": 3
+        "port": port,
+        "score": round(model_score,ndigits=3),
+        "status":1
+        
     }
 
     # Make the PUT request
@@ -130,7 +131,7 @@ def training_in_background(tuner:AutoML, training_level,dataset_id,model_id):
     return {"message": "Model trained successfully", "score": model_score}
 
 @app.post("/train")
-def train_model(dataset_id: str,model_id: str,dataset_path: str, target_column: str,background_tasks: BackgroundTasks, id_columns: list[str] = [], training_level: int = 500):
+def train_model(model_id: int,model_name:str,user_id:int,dataset_path: str, target_column: str,background_tasks: BackgroundTasks, id_columns: list[str] = [], training_level: int = 500):
     try:
         df = pd.read_csv(dataset_path)
         if id_columns:
@@ -138,15 +139,15 @@ def train_model(dataset_id: str,model_id: str,dataset_path: str, target_column: 
         
         tuner = AutoML(data=df, data_preprocessing=True, target_column=target_column, interpretability=1)
         tuner.init_study()
-        background_tasks.add_task(training_in_background, tuner, training_level,dataset_id,model_id)
+        background_tasks.add_task(training_in_background, tuner, training_level,model_id,model_name,user_id)
         return {"message": f"Training is started!"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/train/status")
-def train_model(user_id: str,model_id: str):
+@app.get("/train/progress")
+def train_model(dataset_id: str,model_id: str):
     try:
-        name = f"{user_id}-{model_id}"
+        name = f"{dataset_id}-{model_id}"
         with open(f"tmp/status/{name}.json", "r") as file:
             status = json.load(file)
         return status    
@@ -172,49 +173,47 @@ def train_model(user_id: str,model_id: str):
 #     except Exception as e:
 #         raise HTTPException(status_code=500, detail=str(e))
 
-
-
-@app.post("/deploy")
-def deploy_model(model_name: str,user_id:int):
-    try:
-        dist = os.path.join('Deployments', model_name)
-        os.makedirs(dist, exist_ok=True)
-
-        # Copy template files and replace placeholders
-        files = os.listdir('Deploy_template')
-        for file in files:
-            shutil.copyfile(os.path.join('Deploy_template', file), os.path.join(dist, file))
-
-        with open(os.path.join(dist, 'main.py'), 'r') as f:
-            file_content = f.read()
-        file_content = file_content.replace("<model_name>", model_name)
-        file_content = file_content.replace("<user>", user_id)
-        with open(os.path.join(dist, 'main.py'), 'w') as f:
-            f.write(file_content)
-
-        _, containers = get_images_and_containers()
-        port = 8000 if containers.empty else max([int(c[-1]) for c in containers['COMMAND'] if c[-1].isdigit()] or [8000]) + 1
-
-        add_model_to_nginx_config("yourdomain.com", model_name, port)
-
-        image_id = build_image(path=dist, tag=model_name)
-        run_container(image=image_id, ports={f'{port}/tcp': port})
-
-        return {"message": "Model deployed successfully", "url": f"http://yourdomain.com:{port}/{model_name}/predict"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
 @app.delete("/delete")
-def delete_model(model_name: str):
+def delete_model(model_name: str,model_id:int):
     try:
-        dist = os.path.join('Deployments', model_name)
-        shutil.rmtree(dist)
-        os.remove(os.path.join('Models', f"{model_name}_model.pkl"))
-        os.remove(os.path.join('Models', f"{model_name}_tuner.pkl"))
-        delete_model_from_nginx_config("yourdomain.com", model_name)
+        _, containers = get_images_and_containers()
+        container_id = containers[containers['REPOSITORY']==f"{model_name}:latest"].any()
+        delete_container(container_id=container_id)
+        try:
+            delete_model_from_nginx_config("yourdomain.com", model_name)
+        except Exception as e:
+            print(e)
+        shutil.rmtree(os.path.join('Deployments',model_id))
+        update_data = {"status":2,"is_deleted":True}
+        response = requests.put(f"{BASE_URL}/models/{model_id}", json=update_data) 
         return {"message": "Model deleted successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/stop")
+def delete_model(model_name: str,model_id:int):
+    try:
+        _, containers = get_images_and_containers()
+        container_id = containers[containers['REPOSITORY']==f"{model_name}:latest"].any()
+        stop_container(container_id=container_id)
+        update_data = {"status":2}
+        response = requests.put(f"{BASE_URL}/models/{model_id}", json=update_data) 
+        return {"message": "Model stopped successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@app.delete("/start")
+def delete_model(model_name: str,model_id:int):
+    try:
+        _, containers = get_images_and_containers()
+        container_id = containers[containers['REPOSITORY']==f"{model_name}:latest"].any()
+        start_container(container_id=container_id)
+        update_data = {"status":1}
+        response = requests.put(f"{BASE_URL}/models/{model_id}", json=update_data) 
+        return {"message": "Model started successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/deployed_models")
 def deployed_models():
@@ -223,3 +222,4 @@ def deployed_models():
         return containers.to_dict(orient='records')
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
