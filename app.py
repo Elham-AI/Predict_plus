@@ -10,9 +10,14 @@ import boto3
 from docker_utils import build_image, run_container, get_images_and_containers, stop_container, start_container, delete_container, delete_image
 from nginx_utils import add_model_to_nginx_config, delete_model_from_nginx_config
 from dotenv import load_dotenv
+from fastapi.middleware.cors import CORSMiddleware
 import requests
+from pydantic import BaseModel
+from typing import List, Optional
+from fastapi import BackgroundTasks, HTTPException
 
-load_dotenv()
+
+load_dotenv(override=True)
 AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
 AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY")
 AWS_S3_BUCKET = os.getenv("AWS_S3_BUCKET")
@@ -21,6 +26,20 @@ API_HOST = os.getenv("API_HOST")
 API_PORT = os.getenv("API_PORT")
 BASE_URL = f"http://{API_HOST}:{API_PORT}"
 app = FastAPI()
+origins = [
+    "http://localhost:3000",  # Frontend local development
+    "http://127.0.0.1:3000",  # Frontend local development alternative
+    "http://your-production-domain.com",  # Add your production domain
+    "*"  # Allow all origins (use with caution in production)
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,  # Origins that are allowed to access the API
+    allow_credentials=True,  # Allow cookies to be sent
+    allow_methods=["*"],  # HTTP methods to allow (GET, POST, DELETE, etc.)
+    allow_headers=["*"],  # Headers to allow (Authorization, Content-Type, etc.)
+)
 s3_client = boto3.client(
     "s3",
     aws_access_key_id=AWS_ACCESS_KEY,
@@ -32,6 +51,18 @@ os.makedirs('Models', exist_ok=True)
 os.makedirs('Deployments', exist_ok=True)
 os.makedirs('tmp', exist_ok=True)
 os.makedirs('tmp/progresses', exist_ok=True)
+
+
+
+# Define the request body schema
+class TrainRequest(BaseModel):
+    model_id: int
+    model_name: str
+    user_id: int
+    dataset_path: str
+    target_column: str
+    id_columns: Optional[List[str]] = []
+    training_level: int = 500
 
 def deploy(model_id,user_id,model_name):
     try:
@@ -116,8 +147,8 @@ def training_in_background(tuner:AutoML, training_level,model_id,model_name,user
     s3_client.upload_file(f"Models/{name}_model.pkl", AWS_S3_BUCKET, s3_key_model)
     s3_client.upload_file(f"Models/{name}_tuner.pkl", AWS_S3_BUCKET, s3_key_tuner)
     port = deploy(model_id=model_id,model_name=model_name,user_id=user_id)
-    os.remove(f"Models/{name}_tuner.pkl")
-    os.remove(f"Models/{name}_tuner.pkl")
+    # os.remove(f"Models/{name}_tuner.pkl")
+    # os.remove(f"Models/{name}_tuner.pkl")
         
     update_data = {
         "port": port,
@@ -131,26 +162,32 @@ def training_in_background(tuner:AutoML, training_level,model_id,model_name,user
     return {"message": "Model trained successfully", "score": model_score}
 
 @app.post("/train")
-def train_model(model_id: int,model_name:str,user_id:int,dataset_path: str, target_column: str,background_tasks: BackgroundTasks, id_columns: list[str] = [], training_level: int = 500):
+def train_model(request: TrainRequest, background_tasks: BackgroundTasks):
     try:
-        df = pd.read_csv(dataset_path)
-        if id_columns:
-            df = df.drop(columns=id_columns)
+        df = pd.read_csv(f"s3://{AWS_S3_BUCKET}/{request.dataset_path}", storage_options={
+    "key": AWS_ACCESS_KEY,
+    "secret": AWS_SECRET_KEY,
+    "client_kwargs": {"region_name": AWS_REGION}
+})
+        if request.id_columns:
+            df = df.drop(columns=request.id_columns)
         
-        tuner = AutoML(data=df, data_preprocessing=True, target_column=target_column, interpretability=1)
+        tuner = AutoML(data=df, data_preprocessing=True, target_column=request.target_column, interpretability=1)
         tuner.init_study()
-        background_tasks.add_task(training_in_background, tuner, training_level,model_id,model_name,user_id)
+        background_tasks.add_task(training_in_background, tuner, request.training_level,request.model_id,request.model_name,request.user_id)
         return {"message": f"Training is started!"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/train/progress")
-def train_model(dataset_id: str,model_id: str):
+def train_model(model_id: str):
     try:
-        name = f"{dataset_id}-{model_id}"
+        name = f"{model_id}"
         with open(f"tmp/status/{name}.json", "r") as file:
             status = json.load(file)
-        return status    
+        return status   
+    except FileNotFoundError:
+        return {"progress":100}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
