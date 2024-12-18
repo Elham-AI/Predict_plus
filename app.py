@@ -119,7 +119,8 @@ def deploy(model_id,user_id,model_name):
         return port
     except Exception as e:
         return None
-    
+
+   
 def training_in_background(tuner:AutoML, training_level,model_id,model_name,user_id):
     name = f"{model_id}"
     with open(f"tmp/progresses/{name}.json", "w") as file:
