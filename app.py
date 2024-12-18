@@ -116,30 +116,30 @@ def deploy(model_id,user_id,model_name):
         image_id = build_image(path=dist, tag=model_name)
         run_container(image=image_id, ports={f'{port}/tcp': port})
 
-        return port
+        return port,True
     except Exception as e:
-        return None
+        print(e)
+        return 0,False
 
    
 def training_in_background(tuner:AutoML, training_level,model_id,model_name,user_id):
     name = f"{model_id}"
-    with open(f"tmp/progresses/{name}.json", "w") as file:
-        json.dump({"progress":0.0}, file, indent=4)
-    
+
     for i in tuner.optimize(n_trials=training_level):
         with open(f"tmp/progresses/{name}.json", "r") as file:
             progress = json.load(file)
         progress['progress'] = i/training_level
         with open(f"tmp/progresses/{name}.json", "w") as file:
             json.dump(progress, file, indent=4)
+
     tuner.final_training()
     with open(f"tmp/progresses/{name}.json", "r") as file:
         progress = json.load(file)
-    progress['progress'] = 100
+    
+    progress['progress'] = 0.99
     with open(f"tmp/progresses/{name}.json", "w") as file:
         json.dump(progress, file, indent=4)
     model_score = tuner.score
-    
     tuner.save(name)
     
     # Save model
@@ -147,24 +147,47 @@ def training_in_background(tuner:AutoML, training_level,model_id,model_name,user
     s3_key_tuner = f"models/{name}_tuner.pkl"
     s3_client.upload_file(f"Models/{name}_model.pkl", AWS_S3_BUCKET, s3_key_model)
     s3_client.upload_file(f"Models/{name}_tuner.pkl", AWS_S3_BUCKET, s3_key_tuner)
-    port = deploy(model_id=model_id,model_name=model_name,user_id=user_id)
-    # os.remove(f"Models/{name}_tuner.pkl")
-    # os.remove(f"Models/{name}_tuner.pkl")
-        
-    update_data = {
-        "port": port,
-        "score": round(model_score,ndigits=3),
-        "status":1
-        
-    }
+    port,deployed = deploy(model_id=model_id,model_name=model_name,user_id=user_id)
+    os.remove(f"Models/{name}_tuner.pkl")
+    os.remove(f"Models/{name}_model.pkl")
+    if deployed:
+        update_data = {
+            "port": port,
+            "score": round(model_score,ndigits=3),
+            "status":1
+            
+        }
 
-    # Make the PUT request
-    response = requests.put(f"{BASE_URL}/models/{model_id}", json=update_data)  
+        # Make the PUT request
+        response = requests.put(f"{BASE_URL}/models/{model_id}", json=update_data)
+        print(response.text)
+    else:
+        update_data = {
+            "port": port,
+            "score": round(model_score,ndigits=3),
+            "status":2
+            
+        }
+
+        # Make the PUT request
+        response = requests.put(f"{BASE_URL}/models/{model_id}", json=update_data)
+        print(response.text)
+    
+    with open(f"tmp/progresses/{name}.json", "r") as file:
+        progress = json.load(file)
+    
+    progress['progress'] = 1
+    with open(f"tmp/progresses/{name}.json", "w") as file:
+        json.dump(progress, file, indent=4)
+    os.remove(f"tmp/progresses/{name}.json")
     return {"message": "Model trained successfully", "score": model_score}
 
 @app.post("/train")
 def train_model(request: TrainRequest, background_tasks: BackgroundTasks):
     try:
+        with open(f"tmp/progresses/{request.model_id}.json", "w") as file:
+            json.dump({"progress":0.0}, file, indent=4)
+
         df = pd.read_csv(f"s3://{AWS_S3_BUCKET}/{request.dataset_path}", storage_options={
     "key": AWS_ACCESS_KEY,
     "secret": AWS_SECRET_KEY,
@@ -184,11 +207,11 @@ def train_model(request: TrainRequest, background_tasks: BackgroundTasks):
 def train_model(model_id: str):
     try:
         name = f"{model_id}"
-        with open(f"tmp/status/{name}.json", "r") as file:
-            status = json.load(file)
-        return status   
-    except FileNotFoundError:
-        return {"progress":100}
+        with open(f"tmp/progresses/{name}.json", "r") as file:
+            progress = json.load(file)
+        return progress   
+    except FileNotFoundError as e:
+        return {"progress":1}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
