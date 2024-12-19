@@ -1,0 +1,6 @@
+.venv
+catboost_info
+Models
+Deployments
+tmp
+__pycache__
