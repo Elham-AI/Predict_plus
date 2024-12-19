@@ -109,7 +109,7 @@ def deploy(model_id,user_id,model_name):
         shutil.copyfile('autoML.py', os.path.join(dist,'autoML.py'))
         
         try:
-            add_model_to_nginx_config(domain_name="nelc.ai.gov.sa",model_name=model_name,container_port=port)
+            add_model_to_nginx_config(user_id=user_id,model_name=model_name,container_port=port)
         except Exception as e:
             print(e)
 
@@ -235,13 +235,14 @@ def train_model(model_id: str):
 #         raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete("/delete")
-def delete_model(model_name: str,model_id:int):
+def delete_model(user_id:int,model_name: str,model_id:int):
     try:
         _, containers = get_images_and_containers()
         container_id = containers[containers['REPOSITORY']==f"{model_name}:latest"].any()
         delete_container(container_id=container_id)
+        port = int(containers[containers['CONTAINER ID']==container_id]['COMMAND'].tolist()[0][-1])
         try:
-            delete_model_from_nginx_config("yourdomain.com", model_name)
+            delete_model_from_nginx_config(user_id=user_id,model_name=model_id,container_port=port)
         except Exception as e:
             print(e)
         shutil.rmtree(os.path.join('Deployments',model_id))

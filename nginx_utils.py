@@ -1,6 +1,6 @@
 import os
 
-def add_model_to_nginx_config(domain_name, model_name, container_port):
+def add_model_to_nginx_config(user_id,model_name, container_port):
     """
     Update the Nginx configuration to route traffic to a deployed Docker container.
 
@@ -13,11 +13,11 @@ def add_model_to_nginx_config(domain_name, model_name, container_port):
     - None
     """
     # Define the path for the Nginx config file
-    nginx_config_file = "/etc/nginx/sites-available/automl_tool"
+    nginx_config_file = "/etc/nginx/sites-available/elham.ai"
     os.system(f"sudo chmod 666 {nginx_config_file}")
     # Create the upstream block for the new model
     upstream_block = f"""
-    upstream {model_name}_upstream {{
+    upstream {user_id}_{model_name}_upstream {{
         server 127.0.0.1:{container_port};
     }}
     """
@@ -25,7 +25,7 @@ def add_model_to_nginx_config(domain_name, model_name, container_port):
     # Create the location block for the new model path
     location_block = f"""
     location /{model_name} {{
-        proxy_pass http://{model_name}_upstream/{model_name};
+        proxy_pass http://{user_id}_{model_name}_upstream/{user_id}/{model_name};
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -33,43 +33,14 @@ def add_model_to_nginx_config(domain_name, model_name, container_port):
     }}
     """
     
-    # Read the existing Nginx config file
-    if os.path.exists(nginx_config_file):
-        with open(nginx_config_file, "r") as file:
-            nginx_config = file.read()
-    else:
-        nginx_config = f"""upstream admin_upstream {{
-        server 127.0.0.1:8501
 
-}}
-
-server {{
-
-    listen 80;
-
-    server_name {domain_name};
-
-
-    location /admin {{
-
-        proxy_pass http://admin_upstream/;
-
-        proxy_set_header Host $host;
-
-        proxy_set_header X-Real-IP $remote_addr;
-
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-
-        proxy_set_header X-Forwarded-Proto $scheme;
-
-    }}
-}}
-"""
+    with open(nginx_config_file, "r") as file:
+        nginx_config = file.read()
 
 
     # Check if the model is already configured
-    if f"upstream {model_name}_upstream" in nginx_config:
-        print(f"The model '{model_name}' is already configured in the Nginx config.")
+    if f"upstream {user_id}_{model_name}_upstream" in nginx_config:
+        print(f"The model '{user_id}_{model_name}' is already configured in the Nginx config.")
         return
 
     # Insert the new upstream and location blocks
@@ -79,8 +50,8 @@ server {{
     #     f"server_name {domain_name};\n\n{upstream_block}"
     # )
     nginx_config = nginx_config.replace(
-        f"server_name {domain_name};",
-        f"server_name {domain_name};\n\n{location_block}"
+        f"ssl_ciphers ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;",
+        f"ssl_ciphers ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;\n\n{location_block}"
     )
     
     # Write the updated Nginx config back to the file
@@ -92,7 +63,7 @@ server {{
     os.system(f"sudo chmod 644 {nginx_config_file}")
     print(f"Nginx configuration updated and reloaded for model '{model_name}'.")
 
-def delete_model_from_nginx_config(domain_name, model_name, container_port):
+def delete_model_from_nginx_config(user_id,model_name, container_port):
     """
     Update the Nginx configuration to route traffic to a deployed Docker container.
 
@@ -105,11 +76,11 @@ def delete_model_from_nginx_config(domain_name, model_name, container_port):
     - None
     """
     # Define the path for the Nginx config file
-    nginx_config_file = "/etc/nginx/sites-available/automl_tool"
+    nginx_config_file = "/etc/nginx/sites-available/elham.ai"
     os.system(f"sudo chmod 666 {nginx_config_file}")
     # Create the upstream block for the new model
     upstream_block = f"""
-    upstream {model_name}_upstream {{
+    upstream {user_id}_{model_name}_upstream {{
         server 127.0.0.1:{container_port};
     }}
     """
@@ -117,7 +88,7 @@ def delete_model_from_nginx_config(domain_name, model_name, container_port):
     # Create the location block for the new model path
     location_block = f"""
     location /{model_name} {{
-        proxy_pass http://{model_name}_upstream/{model_name};
+        proxy_pass http://{user_id}_{model_name}_upstream/{user_id}/{model_name};
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -125,12 +96,8 @@ def delete_model_from_nginx_config(domain_name, model_name, container_port):
     }}
     """
     
-    # Read the existing Nginx config file
-    if os.path.exists(nginx_config_file):
-        with open(nginx_config_file, "r") as file:
-            nginx_config = file.read()
-    else:
-        nginx_config = f"server {{\n    listen 80;\n    server_name {domain_name};\n}}\n"
+    with open(nginx_config_file, "r") as file:
+        nginx_config = file.read()
 
 
     # Delete the new upstream and location blocks
