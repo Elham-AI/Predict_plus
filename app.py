@@ -24,7 +24,7 @@ AWS_S3_BUCKET = os.getenv("AWS_S3_BUCKET")
 AWS_REGION = os.getenv("AWS_REGION")
 API_HOST = os.getenv("API_HOST")
 API_PORT = os.getenv("API_PORT")
-BASE_URL = f"http://{API_HOST}:{API_PORT}"
+BASE_URL = API_HOST
 app = FastAPI()
 origins = [
     "http://localhost:3000",  # Frontend local development
@@ -65,61 +65,59 @@ class TrainRequest(BaseModel):
     training_level: int = 500
 
 def deploy(model_id,user_id,model_name):
-    try:
-        _, containers = get_images_and_containers()
-        port = 8000 if containers.empty else max([int(c[-1]) for c in containers['COMMAND'] if c[-1].isdigit()] or [8000]) + 1
-        dist = os.path.join('Deployments', model_id)
-        os.makedirs(dist, exist_ok=True)
+    # try:
+    _, containers = get_images_and_containers()
+    port = 8000 if containers.empty else max([int(c[-1]) for c in containers['COMMAND'] if c[-1].isdigit()] or [8000]) + 1
+    dist = os.path.join('Deployments', model_id)
+    os.makedirs(dist, exist_ok=True)
 
-        # Copy template files and replace placeholders
-        files = os.listdir('Deploy_template')
-        for file in files:
-            shutil.copyfile(os.path.join('Deploy_template', file), os.path.join(dist, file))
+    # Copy template files and replace placeholders
+    files = os.listdir('Deploy_template')
+    for file in files:
+        shutil.copyfile(os.path.join('Deploy_template', file), os.path.join(dist, file))
 
-        with open(os.path.join(dist, 'main.py'), 'r') as f:
-            file_content = f.read()
-        file_content = file_content.replace("<model_name>", model_name)
-        file_content = file_content.replace("<model_id>", model_id)
-        file_content = file_content.replace("<user>", user_id)
-        with open(os.path.join(dist, 'main.py'), 'w') as f:
-            f.write(file_content)
-            
-        # with open(os.path.join(dist,'README.md'),'r') as f:
-        #     file_content = f.read()
-        # file_content = file_content.replace("[API Name]",model_name)
-        # for col in dates:
-        #     if col != target_column:
-        #         input_data[col] = input_data[col].astype(str)
-        # file_content = file_content.replace("<input_json>",json.dumps({"data":input_data.to_dict('records')},indent=4))
-        # file_content = file_content.replace("<port>",str(port))
-        # file_content = file_content.replace("<model_name>",model_name)
-        # with open(os.path.join(dist,'README.md'),'w') as f:
-        #     f.write(file_content)
-
+    with open(os.path.join(dist, 'main.py'), 'r') as f:
+        file_content = f.read()
+    file_content = file_content.replace("<model_name>", model_name)
+    file_content = file_content.replace("<model_id>", model_id)
+    file_content = file_content.replace("<user>", user_id)
+    with open(os.path.join(dist, 'main.py'), 'w') as f:
+        f.write(file_content)
         
-        with open(os.path.join(dist,'dockerfile'),'r') as f:
-            file_content = f.read()
+    # with open(os.path.join(dist,'README.md'),'r') as f:
+    #     file_content = f.read()
+    # file_content = file_content.replace("[API Name]",model_name)
+    # for col in dates:
+    #     if col != target_column:
+    #         input_data[col] = input_data[col].astype(str)
+    # file_content = file_content.replace("<input_json>",json.dumps({"data":input_data.to_dict('records')},indent=4))
+    # file_content = file_content.replace("<port>",str(port))
+    # file_content = file_content.replace("<model_name>",model_name)
+    # with open(os.path.join(dist,'README.md'),'w') as f:
+    #     f.write(file_content)
 
-        file_content = file_content.replace("<port>",str(port))
-        with open(os.path.join(dist,'dockerfile'),'w') as f:
-            f.write(file_content)
+    
+    with open(os.path.join(dist,'dockerfile'),'r') as f:
+        file_content = f.read()
 
-        shutil.copyfile(os.path.join('Models',f"{model_id}_model.pkl"), os.path.join(dist,f"{model_name}_model.pkl"))
-        shutil.copyfile(os.path.join('Models',f"{model_id}_tuner.pkl"), os.path.join(dist,f"{model_name}_tuner.pkl"))
-        shutil.copyfile('autoML.py', os.path.join(dist,'autoML.py'))
-        
-        try:
-            add_model_to_nginx_config(user_id=user_id,model_name=model_name,container_port=port)
-        except Exception as e:
-            print(e)
+    file_content = file_content.replace("<port>",str(port))
+    with open(os.path.join(dist,'dockerfile'),'w') as f:
+        f.write(file_content)
 
-        image_id = build_image(path=dist, tag=model_name)
-        run_container(image=image_id, ports={f'{port}/tcp': port})
+    shutil.copyfile(os.path.join('Models',f"{model_id}_model.pkl"), os.path.join(dist,f"{model_name}_model.pkl"))
+    shutil.copyfile(os.path.join('Models',f"{model_id}_tuner.pkl"), os.path.join(dist,f"{model_name}_tuner.pkl"))
+    shutil.copyfile('autoML.py', os.path.join(dist,'autoML.py'))
+    
 
-        return port,True
-    except Exception as e:
-        print(e)
-        return 0,False
+    add_model_to_nginx_config(user_id=user_id,model_name=model_name,container_port=port)
+
+    image_id = build_image(path=dist, tag=model_name)
+    run_container(image=image_id, ports={f'{port}/tcp': port})
+
+    #     return port,True
+    # except Exception as e:
+    #     print(e)
+    #     return 0,False
 
    
 def training_in_background(tuner:AutoML, training_level,model_id,model_name,user_id):
@@ -211,7 +209,8 @@ def train_model(model_id: str):
             progress = json.load(file)
         return progress   
     except FileNotFoundError as e:
-        return {"progress":1}
+        #TODO Make it 1
+        return {"progress":0.99}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
