@@ -25,6 +25,7 @@ def add_model_to_nginx_config(user_id,model_name, container_port):
     # Create the location block for the new model path
     location_block = f"""
     location  /{user_id}/{model_name} {{
+        rewrite ^/{user_id}/{model_name}(/.*)$ $1 break;
         proxy_pass http://{user_id}_{model_name}_upstream/{user_id}/{model_name};
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -88,6 +89,7 @@ def delete_model_from_nginx_config(user_id,model_name, container_port):
     # Create the location block for the new model path
     location_block = f"""
     location /{user_id}/{model_name} {{
+        rewrite ^/{user_id}/{model_name}(/.*)$ $1 break;
         proxy_pass http://{user_id}_{model_name}_upstream/{user_id}/{model_name};
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
