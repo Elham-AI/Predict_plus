@@ -114,7 +114,7 @@ def deploy(model_id,user_id,model_name):
     image_id = build_image(path=dist, tag=model_name)
     run_container(image=image_id, ports={f'{port}/tcp': port})
 
-    #     return port,True
+    return port,True
     # except Exception as e:
     #     print(e)
     #     return 0,False
