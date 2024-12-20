@@ -68,7 +68,7 @@ def deploy(model_id,user_id,model_name):
     # try:
     _, containers = get_images_and_containers()
     port = 8000 if containers.empty else max([int(c[-1]) for c in containers['COMMAND'] if c[-1].isdigit()] or [8000]) + 1
-    dist = os.path.join('Deployments', model_id)
+    dist = os.path.join('Deployments', str(model_id))
     os.makedirs(dist, exist_ok=True)
 
     # Copy template files and replace placeholders
@@ -104,8 +104,8 @@ def deploy(model_id,user_id,model_name):
     with open(os.path.join(dist,'dockerfile'),'w') as f:
         f.write(file_content)
 
-    shutil.copyfile(os.path.join('Models',f"{model_id}_model.pkl"), os.path.join(dist,f"{model_name}_model.pkl"))
-    shutil.copyfile(os.path.join('Models',f"{model_id}_tuner.pkl"), os.path.join(dist,f"{model_name}_tuner.pkl"))
+    shutil.copyfile(os.path.join('Models',f"{model_id}_model.pkl"), os.path.join(dist,f"{model_id}_model.pkl"))
+    shutil.copyfile(os.path.join('Models',f"{model_id}_tuner.pkl"), os.path.join(dist,f"{model_id}_tuner.pkl"))
     shutil.copyfile('autoML.py', os.path.join(dist,'autoML.py'))
     
 
