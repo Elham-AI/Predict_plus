@@ -15,7 +15,7 @@ import requests
 from pydantic import BaseModel
 from typing import List, Optional
 from fastapi import BackgroundTasks, HTTPException
-
+import certifi
 
 load_dotenv(override=True)
 AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
@@ -157,7 +157,7 @@ def training_in_background(tuner:AutoML, training_level,model_id,model_name,user
         }
 
         # Make the PUT request
-        response = requests.put(f"{BASE_URL}/models/{model_id}", json=update_data)
+        response = requests.put(f"{BASE_URL}/models/{model_id}", json=update_data,verify=certifi.where())
         print(response.text)
     else:
         update_data = {
@@ -168,7 +168,7 @@ def training_in_background(tuner:AutoML, training_level,model_id,model_name,user
         }
 
         # Make the PUT request
-        response = requests.put(f"{BASE_URL}/models/{model_id}", json=update_data)
+        response = requests.put(f"{BASE_URL}/models/{model_id}", json=update_data,verify=certifi.where())
         print(response.text)
     
     with open(f"tmp/progresses/{name}.json", "r") as file:
@@ -258,7 +258,7 @@ def delete_model(model_name: str,model_id:int):
         container_id = containers[containers['REPOSITORY']==f"{model_name}:latest"].any()
         stop_container(container_id=container_id)
         update_data = {"status":2}
-        response = requests.put(f"{BASE_URL}/models/{model_id}", json=update_data) 
+        response = requests.put(f"{BASE_URL}/models/{model_id}", json=update_data,verify=certifi.where()) 
         return {"message": "Model stopped successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -270,7 +270,7 @@ def delete_model(model_name: str,model_id:int):
         container_id = containers[containers['REPOSITORY']==f"{model_name}:latest"].any()
         start_container(container_id=container_id)
         update_data = {"status":1}
-        response = requests.put(f"{BASE_URL}/models/{model_id}", json=update_data) 
+        response = requests.put(f"{BASE_URL}/models/{model_id}", json=update_data,verify=certifi.where()) 
         return {"message": "Model started successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

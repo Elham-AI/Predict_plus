@@ -95,3 +95,4 @@ uvicorn==0.32.0
 watchdog==5.0.3
 wrapt==1.17.0
 yarl==1.18.3
+certifi 
