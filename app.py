@@ -157,7 +157,7 @@ def training_in_background(tuner:AutoML, training_level,model_id,model_name,user
         }
 
         # Make the PUT request
-        response = requests.put(f"{BASE_URL}/models/{model_id}", json=update_data,verify="/etc/ssl/certs/ca-bundle.crt")
+        response = requests.put(f"{BASE_URL}/models/{model_id}", json=update_data,verify="/etc/ssl/certs/ca-certificates.crt")
         print(response.text)
     else:
         update_data = {
@@ -168,7 +168,7 @@ def training_in_background(tuner:AutoML, training_level,model_id,model_name,user
         }
 
         # Make the PUT request
-        response = requests.put(f"{BASE_URL}/models/{model_id}", json=update_data,verify="/etc/ssl/certs/ca-bundle.crt")
+        response = requests.put(f"{BASE_URL}/models/{model_id}", json=update_data,verify="/etc/ssl/certs/ca-certificates.crt")
         print(response.text)
     
     with open(f"tmp/progresses/{name}.json", "r") as file:
@@ -246,7 +246,7 @@ def delete_model(user_id:int,model_name: str,model_id:int):
             print(e)
         shutil.rmtree(os.path.join('Deployments',str(model_id)))
         update_data = {"status":2,"is_deleted":True}
-        response = requests.put(f"{BASE_URL}/models/{model_id}", json=update_data,verify="/etc/ssl/certs/ca-bundle.crt") 
+        response = requests.put(f"{BASE_URL}/models/{model_id}", json=update_data,verify="/etc/ssl/certs/ca-certificates.crt") 
         return {"message": "Model deleted successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -258,7 +258,7 @@ def delete_model(model_name: str,model_id:int):
         container_id = containers[containers['REPOSITORY']==f"{model_name}:latest"].any()
         stop_container(container_id=container_id)
         update_data = {"status":2}
-        response = requests.put(f"{BASE_URL}/models/{model_id}", json=update_data,verify="/etc/ssl/certs/ca-bundle.crt") 
+        response = requests.put(f"{BASE_URL}/models/{model_id}", json=update_data,verify="/etc/ssl/certs/ca-certificates.crt") 
         return {"message": "Model stopped successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -270,7 +270,7 @@ def delete_model(model_name: str,model_id:int):
         container_id = containers[containers['REPOSITORY']==f"{model_name}:latest"].any()
         start_container(container_id=container_id)
         update_data = {"status":1}
-        response = requests.put(f"{BASE_URL}/models/{model_id}", json=update_data,verify="/etc/ssl/certs/ca-bundle.crt") 
+        response = requests.put(f"{BASE_URL}/models/{model_id}", json=update_data,verify="/etc/ssl/certs/ca-certificates.crt") 
         return {"message": "Model started successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
