@@ -26,7 +26,7 @@ async def verify_api_key(api_key: str = Depends(api_key_header)):
     try:
         response = requests.post(
             "https://elham.ai/api/api_keys/auth",
-            json={"user_id": "<user_id>", "api_key": api_key},
+            json={"user_id": <user>, "api_key": api_key},
             timeout=10
         )
         if response.status_code != 200:
@@ -106,7 +106,7 @@ async def predict(request:Request,api_key: str = Depends(verify_api_key)):
 
 
 @app.get("/<user>/<model_name>/ping")
-async def ping(request:Request):
+async def ping(request:Request,api_key: str = Depends(verify_api_key)):
     """
     Health check endpoint.
     """
