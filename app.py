@@ -75,6 +75,9 @@ def deploy(model_id,user_id,model_name):
     # try:
     _, containers = get_images_and_containers()
     port = 8000 if containers.empty else max([int(c[-1]) for c in containers['COMMAND'] if c[-1].isdigit()] or [8000]) + 1
+    # since 8001 is mlapi port
+    if port == 8001:
+        port = 8002
     dist = os.path.join('Deployments', str(model_id))
     os.makedirs(dist, exist_ok=True)
 
