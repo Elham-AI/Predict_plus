@@ -111,4 +111,4 @@ async def ping(request:Request,api_key: str = Depends(verify_api_key)):
     """
     Health check endpoint.
     """
-    return {"message": f"Model <model_name> for user <user> is healthy"}
+    return {"message": f"Model <model_name> is healthy"}
