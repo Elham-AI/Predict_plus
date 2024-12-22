@@ -65,6 +65,12 @@ class TrainRequest(BaseModel):
     id_columns: Optional[List[str]] = []
     training_level: int = 500
 
+def clean_up(model_id):
+    os.remove(f"Models/{model_id}_tuner.pkl")
+    os.remove(f"Models/{model_id}_model.pkl")
+    os.remove(f"tmp/progresses/{model_id}.json")
+    shutil.rmtree(os.path.join('Deployments', str(model_id)))
+
 def deploy(model_id,user_id,model_name):
     # try:
     _, containers = get_images_and_containers()
@@ -147,8 +153,7 @@ def training_in_background(tuner:AutoML, training_level,model_id,model_name,user
     s3_client.upload_file(f"Models/{name}_model.pkl", AWS_S3_BUCKET, s3_key_model)
     s3_client.upload_file(f"Models/{name}_tuner.pkl", AWS_S3_BUCKET, s3_key_tuner)
     port,deployed = deploy(model_id=model_id,model_name=model_name,user_id=user_id)
-    os.remove(f"Models/{name}_tuner.pkl")
-    os.remove(f"Models/{name}_model.pkl")
+    
     if deployed:
         update_data = {
             "port": port,
@@ -178,7 +183,7 @@ def training_in_background(tuner:AutoML, training_level,model_id,model_name,user
     progress['progress'] = 1
     with open(f"tmp/progresses/{name}.json", "w") as file:
         json.dump(progress, file, indent=4)
-    os.remove(f"tmp/progresses/{name}.json")
+    clean_up(model_id)
     return {"message": "Model trained successfully", "score": model_score}
 
 @app.post("/train")
