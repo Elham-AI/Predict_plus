@@ -25,9 +25,10 @@ async def verify_api_key(api_key: str = Depends(api_key_header)):
     
     try:
         response = requests.post(
-            "https://127.0.0.1:8000/api_keys/auth",
+            "https://elham.ai/api/api_keys/auth",
             json={"user_id": <user>, "api_key": api_key},
-            timeout=10
+            timeout=10,
+            verify=False
         )
         if response.status_code != 200:
             raise HTTPException(
