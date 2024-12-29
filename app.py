@@ -218,8 +218,7 @@ def train_model(model_id: str):
             progress = json.load(file)
         return progress   
     except FileNotFoundError as e:
-        #TODO Make it 1
-        return {"progress":0.99}
+        return {"progress":1}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
