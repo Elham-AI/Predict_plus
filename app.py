@@ -266,7 +266,7 @@ def stop_model(model_name: str,model_id:int):
         images, containers = get_images_and_containers()
         images['IMAGE'] = images['REPOSITORY']+":"+images['TAG']
         df = containers.merge(images,on='IMAGE',how='left',suffixes=('_CONTAINER','_IMAGE'))
-        container_id = df[df['REPOSITORY']==f"{model_name}:latest"]['CONTAINER ID'].any()
+        container_id = df[df['REPOSITORY']==f"{model_name}:latest"]['CONTAINER ID'].item()
         print(model_name,'-',model_id)
         print(container_id)
         stop_container(container_id=container_id)
@@ -282,7 +282,7 @@ def start_model(model_name: str,model_id:int):
         images, containers = get_images_and_containers()
         images['IMAGE'] = images['REPOSITORY']+":"+images['TAG']
         df = containers.merge(images,on='IMAGE',how='left',suffixes=('_CONTAINER','_IMAGE'))
-        container_id = df[df['REPOSITORY']==f"{model_name}:latest"]['CONTAINER ID'].any()
+        container_id = df[df['REPOSITORY']==f"{model_name}:latest"]['CONTAINER ID'].item()
         print(model_name,'-',model_id)
         print(container_id)
         start_container(container_id=container_id)
