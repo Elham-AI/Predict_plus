@@ -263,8 +263,9 @@ def delete_model(user_id:int,model_name: str,model_id:int):
 @app.post("/stop")
 def stop_model(model_name: str,model_id:int):
     try:
-        _, containers = get_images_and_containers()
-        container_id = containers[containers['REPOSITORY']==f"{model_name}:latest"].any()
+        images, containers = get_images_and_containers()
+        df = containers.merge(images,on='IMAGE',how='left',suffixes=('_CONTAINER','_IMAGE'))
+        container_id = df[df['REPOSITORY']==f"{model_name}:latest"]['CONTAINER ID'].any()
         stop_container(container_id=container_id)
         update_data = {"status":2}
         response = requests.put(f"{BASE_URL}/models/{model_id}", json=update_data) 
@@ -275,8 +276,9 @@ def stop_model(model_name: str,model_id:int):
 @app.post("/start")
 def start_model(model_name: str,model_id:int):
     try:
-        _, containers = get_images_and_containers()
-        container_id = containers[containers['REPOSITORY']==f"{model_name}:latest"].any()
+        images, containers = get_images_and_containers()
+        df = containers.merge(images,on='IMAGE',how='left',suffixes=('_CONTAINER','_IMAGE'))
+        container_id = df[df['REPOSITORY']==f"{model_name}:latest"]['CONTAINER ID'].any()
         start_container(container_id=container_id)
         update_data = {"status":1}
         response = requests.put(f"{BASE_URL}/models/{model_id}", json=update_data) 
