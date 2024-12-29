@@ -45,10 +45,10 @@ def get_images_and_containers():
     
     return df1,df2
 
-def run_container(image, ports):
+def run_container(image, ports,name):
     client = docker.from_env()
     try:
-        container = client.containers.run(image, ports=ports, detach=True)
+        container = client.containers.run(image, ports=ports, detach=True,name=name)
         return container.id
     except ContainerError as e:
         raise e

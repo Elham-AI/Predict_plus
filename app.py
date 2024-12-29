@@ -121,8 +121,8 @@ def deploy(model_id,user_id,model_name):
 
     add_model_to_nginx_config(user_id=user_id,model_name=model_name,container_port=port)
 
-    image_id = build_image(path=dist, tag=model_name)
-    run_container(image=image_id, ports={f'{port}/tcp': port})
+    image_id = build_image(path=dist, tag=f"{user_id}_{model_id}")
+    run_container(image=image_id, ports={f'{port}/tcp': port},name=f"{user_id}_{model_id}")
 
     return port,True
     # except Exception as e:
@@ -261,13 +261,11 @@ def delete_model(user_id:int,model_name: str,model_id:int):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/stop")
-def stop_model(model_name: str,model_id:int):
+def stop_model(user_id: int,model_id:int):
     try:
-        images, containers = get_images_and_containers()
-        images['IMAGE'] = images['REPOSITORY']+":"+images['TAG']
-        df = containers.merge(images,on='IMAGE',how='left',suffixes=('_CONTAINER','_IMAGE'))
-        container_id = df[df['REPOSITORY']==f"{model_name}:latest"]['CONTAINER ID'].item()
-        print(model_name,'-',model_id)
+        _, containers = get_images_and_containers()
+        container_id = containers[containers['NAMES']==f"{user_id}_{model_id}"]['CONTAINER ID'].item()
+        print(user_id,'-',model_id)
         print(container_id)
         stop_container(container_id=container_id)
         update_data = {"status":2}
@@ -277,13 +275,11 @@ def stop_model(model_name: str,model_id:int):
         raise HTTPException(status_code=500, detail=str(e))
     
 @app.post("/start")
-def start_model(model_name: str,model_id:int):
+def start_model(user_id: str,model_id:int):
     try:
-        images, containers = get_images_and_containers()
-        images['IMAGE'] = images['REPOSITORY']+":"+images['TAG']
-        df = containers.merge(images,on='IMAGE',how='left',suffixes=('_CONTAINER','_IMAGE'))
-        container_id = df[df['REPOSITORY']==f"{model_name}:latest"]['CONTAINER ID'].item()
-        print(model_name,'-',model_id)
+        _, containers = get_images_and_containers()
+        container_id = containers[containers['NAMES']==f"{user_id}_{model_id}"]['CONTAINER ID'].item()
+        print(user_id,'-',model_id)
         print(container_id)
         start_container(container_id=container_id)
         update_data = {"status":1}
