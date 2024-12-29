@@ -264,6 +264,7 @@ def delete_model(user_id:int,model_name: str,model_id:int):
 def stop_model(model_name: str,model_id:int):
     try:
         images, containers = get_images_and_containers()
+        images['IMAGE'] = images['REPOSITORY']+":"+images['TAG']
         df = containers.merge(images,on='IMAGE',how='left',suffixes=('_CONTAINER','_IMAGE'))
         container_id = df[df['REPOSITORY']==f"{model_name}:latest"]['CONTAINER ID'].any()
         stop_container(container_id=container_id)
@@ -277,6 +278,7 @@ def stop_model(model_name: str,model_id:int):
 def start_model(model_name: str,model_id:int):
     try:
         images, containers = get_images_and_containers()
+        images['IMAGE'] = images['REPOSITORY']+":"+images['TAG']
         df = containers.merge(images,on='IMAGE',how='left',suffixes=('_CONTAINER','_IMAGE'))
         container_id = df[df['REPOSITORY']==f"{model_name}:latest"]['CONTAINER ID'].any()
         start_container(container_id=container_id)
