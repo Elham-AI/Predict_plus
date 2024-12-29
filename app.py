@@ -261,7 +261,7 @@ def delete_model(user_id:int,model_name: str,model_id:int):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/stop")
-def delete_model(model_name: str,model_id:int):
+def stop_model(model_name: str,model_id:int):
     try:
         _, containers = get_images_and_containers()
         container_id = containers[containers['REPOSITORY']==f"{model_name}:latest"].any()
@@ -272,8 +272,8 @@ def delete_model(model_name: str,model_id:int):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     
-@app.delete("/start")
-def delete_model(model_name: str,model_id:int):
+@app.post("/start")
+def start_model(model_name: str,model_id:int):
     try:
         _, containers = get_images_and_containers()
         container_id = containers[containers['REPOSITORY']==f"{model_name}:latest"].any()
