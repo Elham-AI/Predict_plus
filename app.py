@@ -270,7 +270,7 @@ def stop_model(user_id: int,model_id:int):
         stop_container(container_id=container_id)
         update_data = {"status":2}
         response = requests.put(f"{BASE_URL}/models/{model_id}", json=update_data)
-        print(response)
+        print(response.text)
         return {"message": "Model stopped successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -285,7 +285,7 @@ def start_model(user_id: str,model_id:int):
         start_container(container_id=container_id)
         update_data = {"status":1}
         response = requests.put(f"{BASE_URL}/models/{model_id}", json=update_data)
-        print(response)
+        print(response.text)
         return {"message": "Model started successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
