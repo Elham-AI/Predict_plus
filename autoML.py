@@ -34,25 +34,26 @@ logging.basicConfig(
     # format='%(asctime)s - %(levelname)s : %(message)s', 
     level=logging.INFO
     )
-def log_message(level, message):
-    if level.lower() == 'info':
-        print("[INFO]: ",message)
-        logging.info(message)
-    elif level.lower() == 'error':
-        print("[ERROR]: ",message)
-        logging.error(message)
-    elif level.lower() == 'warning':
-        print("[WARNING]: ",message)
-        logging.warning(message)
-    elif level.lower() == 'debug':
-        print("[DEBUG]: ",message)
-        logging.debug(message)
-    else:
-        logging.critical('Unsupported logging level: ' + level)
+def log_message(level, message,debug):
+    if debug:
+        if level.lower() == 'info':
+            print("[INFO]: ",message)
+            logging.info(message)
+        elif level.lower() == 'error':
+            print("[ERROR]: ",message)
+            logging.error(message)
+        elif level.lower() == 'warning':
+            print("[WARNING]: ",message)
+            logging.warning(message)
+        elif level.lower() == 'debug':
+            print("[DEBUG]: ",message)
+            logging.debug(message)
+        else:
+            logging.critical('Unsupported logging level: ' + level)
 
 class AutoML:
 
-    def __init__(self,data:pd.DataFrame,interpretability:float,target_column:str,data_preprocessing:bool=False):
+    def __init__(self,data:pd.DataFrame,interpretability:float,target_column:str,data_preprocessing:bool=False,debug:bool=True):
         self.data = data.copy()
         self.interpretability = interpretability
         self.target_column = target_column
@@ -73,12 +74,12 @@ class AutoML:
                 self.features_date.append(col)
             else:
                 self.features_cat.append(col)
-        log_message('debug',self.data.info())
+        log_message('debug',self.data.info(),self.debug)
         self.encoders = {}
-        log_message('info',list(self.data[self.target_column].unique()))
+        log_message('info',list(self.data[self.target_column].unique()),self.debug)
         self.refine_the_data()
-        log_message('info',list(self.data[self.target_column].unique()))
-        log_message('debug',self.data.info())
+        log_message('info',list(self.data[self.target_column].unique()),self.debug)
+        log_message('debug',self.data.info(),self.debug)
         if 'float' in str(self.data[self.target_column].dtype) or 'int' in str(self.data[self.target_column].dtype):
             self.features_num.remove(self.target_column)
         elif 'bool' in str(self.data[self.target_column].dtype):
@@ -86,9 +87,10 @@ class AutoML:
         else:
             self.features_cat.remove(self.target_column)
         self.original_data = self.data
+        self.debug = debug
             
     def refine_the_data(self):
-        log_message('debug','Start casting to numarical features')
+        log_message('debug','Start casting to numarical features',self.debug)
         # from catagorical data to numarical
         new_cols = []
         for col in tqdm(self.features_cat):
@@ -102,7 +104,7 @@ class AutoML:
             self.features_cat.remove(col)
             
         # from catagorical data to dates
-        log_message('debug','Start casting to date features')
+        log_message('debug','Start casting to date features',self.debug)
         new_cols = []
         for col in tqdm(self.features_cat):
             try:
@@ -122,7 +124,7 @@ class AutoML:
         cols_nunique_alot = cols_nunique[cols_nunique>100]
         
         # from catagorical to bool
-        log_message('debug','Start casting to bool features')
+        log_message('debug','Start casting to bool features',self.debug)
         for col in tqdm(cols_nunique_bool.index):
             self.encoders[col] = {}
             uniques = list(self.data[col].unique())
@@ -151,7 +153,7 @@ class AutoML:
             
         # Add date features
         if self.features_date:
-            log_message('debug','Start creating date features')
+            log_message('debug','Start creating date features',self.debug)
         for col in tqdm(self.features_date):
             self.data[col+'_'+'day_of_year'] = self.data[col].dt.day_of_year
             self.features_num.append(col+'_'+'day_of_year')
@@ -205,7 +207,7 @@ class AutoML:
             self.task = 'multi_classification'
         elif str(self.data[self.target_column].dtype) in ['float64','float32','int64','int32']:
             self.task = 'regression'
-        log_message('debug',f'The selected task is {self.task}')
+        log_message('debug',f'The selected task is {self.task}',self.debug)
     
     def preprocess(self,type_num,type_cat,type_cat_target,type_num_target):
         self.X = self.data.drop(columns=self.target_column)
@@ -393,7 +395,7 @@ class AutoML:
                     type_num_target = None
 
             if self.data.isnull().sum().sum() > 0:
-                log_message('debug',"Opps!! there are nulls in your data")
+                log_message('debug',"Opps!! there are nulls in your data",self.debug)
 
                 if not self.data.copy().dropna().empty:
                     handling_type_drop = trial.suggest_categorical('handling_type_drop', [True,False])
@@ -418,7 +420,7 @@ class AutoML:
                                        type_cat_target=type_cat_target,
                                        type_num_target=type_num_target)  
             if X.shape[0] > 5000:
-                log_message('info','The data is huge, we will train on a subset of the data')
+                log_message('info','The data is huge, we will train on a subset of the data',self.debug)
                 n = 5000
                 indexes = np.random.choice(X.shape[0], n, replace=False)  
                 X = X[indexes,:]
@@ -459,8 +461,8 @@ class AutoML:
             else:
                 upsample = False
             scores = []
-            log_message("debug","Fit "+ml_algorithm)
-            log_message("debug","Trial_parameters: "+str(trial_parameters))
+            log_message("debug","Fit "+ml_algorithm,self.debug)
+            log_message("debug","Trial_parameters: "+str(trial_parameters),self.debug)
             for i, (train_index, test_index) in enumerate(kf.split(X=X,y=y)):
                 X_train, X_test, y_train, y_test = X[train_index],X[test_index],y[train_index],y[test_index]
 
@@ -477,38 +479,38 @@ class AutoML:
                 score = self.evaluate(y_pred=y_pred,y_true=y_test)
                 scores.append(score) 
             score = sum(scores)/len(scores)
-            log_message("debug","Fited "+ml_algorithm)
-            log_message("info","Score "+str(score))
+            log_message("debug","Fited "+ml_algorithm,self.debug)
+            log_message("info","Score "+str(score),self.debug)
             return score
         except Exception as e:
-            log_message('error',e)
-            log_message('error',trial_parameters)
+            log_message('error',e,self.debug)
+            log_message('error',trial_parameters,self.debug)
             return None
     
     def optimize(self,n_trials):
         for i in range(n_trials):
-            log_message("debug","Asking")
+            log_message("debug","Asking",self.debug)
             trial = self.study.ask()
-            log_message("debug","Training")  # Generate a trial suggestion
+            log_message("debug","Training",self.debug)  # Generate a trial suggestion
             value = self.train(trial)  # Evaluate the objective function
-            log_message("debug","Telling")
+            log_message("debug","Telling",self.debug)
             self.study.tell(trial, value)
-            log_message("debug","Finished")
-            log_message("debug","="*10)
+            log_message("debug","Finished",self.debug)
+            log_message("debug","="*10,self.debug)
             gc.collect()
             yield i
     
     def init_study(self):
-        log_message('debug',f'The optimization phase started')
+        log_message('debug',f'The optimization phase started',self.debug)
         self.study = optuna.create_study(direction='maximize')
 
     def final_training(self):
         self.best_trial = self.study.best_trial
         self.best_params = self.study.best_params
-        log_message('info',f"The best parameters:\n{self.best_params}")
+        log_message('info',f"The best parameters:\n{self.best_params}",self.debug)
         self.score = self.study.best_value
-        log_message('info',f'The optimized model achieved {self.score} score')
-        log_message('debug',f'The fitting phase started')
+        log_message('info',f'The optimized model achieved {self.score} score',self.debug)
+        log_message('debug',f'The fitting phase started',self.debug)
         temp_parameters = self.best_params
         ml_algorithm = temp_parameters['ml_algorithm']
         ml_algorithm_type = self.ml_algorithms[self.ml_algorithms.algorithm==ml_algorithm]['type'].item()
@@ -594,7 +596,7 @@ class AutoML:
             y_pred = self.postprocess(y_pred,pars,self.type_num_target,self.type_cat_target,False)
             y_test = self.postprocess(y[test_index],pars,self.type_num_target,self.type_cat_target,False)
             score = self.evaluate(y_pred=y_pred,y_true=y_test)
-            log_message('info',f'Fold {i} with score {score}')
+            log_message('info',f'Fold {i} with score {score}',self.debug)
             models.append(model)
         models = [ (f"model_{i}",j) for i,j in enumerate(models)]
         if self.task in ['binary_classification','multi_classification']:
@@ -612,7 +614,7 @@ class AutoML:
             pickle.dump(self.model,f)
         with open(f"Models/{model_name}_tuner.pkl", 'wb') as f:
             pickle.dump(self,f)
-        log_message('debug',f'The model has been saved successfuly, model path is {model_name}_model/tuner.pkl')
+        log_message('debug',f'The model has been saved successfuly, model path is {model_name}_model/tuner.pkl',self.debug)
 
 class Module():
     def __init__(self,automl:AutoML):
@@ -630,92 +632,85 @@ class Module():
         self.task = automl.task
         self.imputer_num = automl.imputer_num
         self.imputer_cat_and_bool = automl.imputer_cat_and_bool
+        self.debug=True
     
     def predict(self,data:pd.DataFrame):
         output=None
-        try:
-            for col in tqdm(self.features_date ):
-                data[col+'_'+'day_of_year'] = data[col].dt.day_of_year
-                data[col+'_'+'quarter'] = data[col].dt.quarter
-                data[col+'_'+'day_of_week'] = data[col].dt.day_of_week 
-                data[col+'_'+'days_in_month'] = data[col].dt.days_in_month 
-                data[col+'_'+'day'] = data[col].dt.day
-                data[col+'_'+'month'] = data[col].dt.month
-                data[col+'_'+'year'] = data[col].dt.year
-                data[col+'_'+'hour'] = data[col].dt.hour
-                data[col+'_'+'day_of_year'+'_sin'] = (np.pi *data[col+'_'+'day_of_year'] / 183).apply(lambda x:np.sin(x))
-                data[col+'_'+'hour'+'_sin'] = (np.pi *data[col+'_'+'hour'] / 12).apply(lambda x:np.sin(x))
-            log_message("debug",data.info())
-            for col in self.features_bool:
-                data[col] = data[col].map(self.encoders[col])
-            log_message("debug",data.info())
-            if self.imputer_cat_and_bool != None:
-                data.loc[:,self.features_cat+self.features_bool] = self.imputer_cat_and_bool.transform(data.loc[:,self.features_cat+self.features_bool])
+        for col in tqdm(self.features_date ):
+            data[col+'_'+'day_of_year'] = data[col].dt.day_of_year
+            data[col+'_'+'quarter'] = data[col].dt.quarter
+            data[col+'_'+'day_of_week'] = data[col].dt.day_of_week 
+            data[col+'_'+'days_in_month'] = data[col].dt.days_in_month 
+            data[col+'_'+'day'] = data[col].dt.day
+            data[col+'_'+'month'] = data[col].dt.month
+            data[col+'_'+'year'] = data[col].dt.year
+            data[col+'_'+'hour'] = data[col].dt.hour
+            data[col+'_'+'day_of_year'+'_sin'] = (np.pi *data[col+'_'+'day_of_year'] / 183).apply(lambda x:np.sin(x))
+            data[col+'_'+'hour'+'_sin'] = (np.pi *data[col+'_'+'hour'] / 12).apply(lambda x:np.sin(x))
+        log_message("debug",data.info(),self.debug)
+        for col in self.features_bool:
+            data[col] = data[col].map(self.encoders[col])
+        log_message("debug",data.info(),self.debug)
+        if self.imputer_cat_and_bool != None:
+            data.loc[:,self.features_cat+self.features_bool] = self.imputer_cat_and_bool.transform(data.loc[:,self.features_cat+self.features_bool])
 
-            if self.imputer_num != None:
-                data.loc[:,self.features_num] = self.imputer_num.transform(data.loc[:,self.features_num])
-            log_message("debug",data.info())
-            X_cat = data[self.features_cat].copy()
-            X_num = data[self.features_num].copy()
-            X_bool = data[self.features_bool].copy().values
-            if self.type_num == 'min_max' and self.features_num:
-                X_min = self.preprocessing_parameters['X_min']
-                X_max = self.preprocessing_parameters['X_max']
-                new_X_num = (X_num - X_min)/(X_max - X_min)
+        if self.imputer_num != None:
+            data.loc[:,self.features_num] = self.imputer_num.transform(data.loc[:,self.features_num])
+        log_message("debug",data.info(),self.debug)
+        X_cat = data[self.features_cat].copy()
+        X_num = data[self.features_num].copy()
+        X_bool = data[self.features_bool].copy().values
+        if self.type_num == 'min_max' and self.features_num:
+            X_min = self.preprocessing_parameters['X_min']
+            X_max = self.preprocessing_parameters['X_max']
+            new_X_num = (X_num - X_min)/(X_max - X_min)
+
+        elif self.type_num == 'standard' and self.features_num:
+            X_mean = self.preprocessing_parameters['X_mean']
+            X_std = self.preprocessing_parameters['X_std']
+            new_X_num = (X_num - X_mean)/X_std
     
-            elif self.type_num == 'standard' and self.features_num:
-                X_mean = self.preprocessing_parameters['X_mean']
-                X_std = self.preprocessing_parameters['X_std']
-                new_X_num = (X_num - X_mean)/X_std
-        
-            elif self.features_num:
-                raise RuntimeError("wrong preprocessing type")
-            else:
-                new_X_num = X_num
-            if self.type_cat == 'label' and self.features_cat:
-                for col in self.features_cat:
-                    le = self.encoders[col]
-                    X_cat.loc[:,col] = le.transform(X_cat[col])
+        elif self.features_num:
+            raise RuntimeError("wrong preprocessing type")
+        else:
+            new_X_num = X_num
+        if self.type_cat == 'label' and self.features_cat:
+            for col in self.features_cat:
+                le = self.encoders[col]
+                X_cat.loc[:,col] = le.transform(X_cat[col])
 
-                X_cat = X_cat.values
-        
-            elif self.type_cat == 'one_hot' and self.features_cat:
-                one_hots = []
-                for col in self.features_cat:
-                    le = self.encoders[col]
-                    one_hots.append(le.transform(X_cat[col].values.reshape(-1, 1)).toarray())
-                X_cat = np.concatenate(one_hots,axis=1)
-            elif self.features_cat:
-                raise RuntimeError("wrong preprocessing type")
-            else:
-                X_cat = X_cat.values
+            X_cat = X_cat.values
+    
+        elif self.type_cat == 'one_hot' and self.features_cat:
+            one_hots = []
+            for col in self.features_cat:
+                le = self.encoders[col]
+                one_hots.append(le.transform(X_cat[col].values.reshape(-1, 1)).toarray())
+            X_cat = np.concatenate(one_hots,axis=1)
+        elif self.features_cat:
+            raise RuntimeError("wrong preprocessing type")
+        else:
+            X_cat = X_cat.values
 
-            input_data = np.concatenate([X_cat,new_X_num,X_bool],axis=1)
-            output = self.model.predict(input_data)
-            if self.task == 'regression':
-                if self.type_num_target == 'min_max':
-                    y_min = self.preprocessing_parameters['y_min']
-                    y_max = self.preprocessing_parameters['y_max']
-                    new_output = output * (y_max - y_min) + y_min
-                    
-                elif self.type_num_target == 'standard':
-                    y_mean = self.preprocessing_parameters['y_mean']
-                    y_std = self.preprocessing_parameters['y_std']
-                    new_output = (output * y_std ) + y_mean
+        input_data = np.concatenate([X_cat,new_X_num,X_bool],axis=1)
+        output = self.model.predict(input_data)
+        if self.task == 'regression':
+            if self.type_num_target == 'min_max':
+                y_min = self.preprocessing_parameters['y_min']
+                y_max = self.preprocessing_parameters['y_max']
+                new_output = output * (y_max - y_min) + y_min
+                
+            elif self.type_num_target == 'standard':
+                y_mean = self.preprocessing_parameters['y_mean']
+                y_std = self.preprocessing_parameters['y_std']
+                new_output = (output * y_std ) + y_mean
 
-            elif self.task == 'multi_classification' or self.task == 'binary_classification':
-                if self.type_cat_target == 'label':
-                    le = self.encoders['target']
-                    new_output = le.inverse_transform(output)
+        elif self.task == 'multi_classification' or self.task == 'binary_classification':
+            if self.type_cat_target == 'label':
+                le = self.encoders['target']
+                new_output = le.inverse_transform(output)
 
-                elif self.type_cat_target == 'one_hot':
-                    le = self.encoders['target']
-                    new_output = le.inverse_transform(output.reshape(-1, 1))
-
-            return new_output
-        except Exception as e:
-            log_message('error',e)
-            log_message('error',data.isna().sum()[data.isna().sum()>0])
-            if output:
-                log_message('error',output)
-                log_message('error',self.encoders['target'].classes_)
+            elif self.type_cat_target == 'one_hot':
+                le = self.encoders['target']
+                new_output = le.inverse_transform(output.reshape(-1, 1))
+        return new_output
