@@ -74,6 +74,7 @@ class AutoML:
                 self.features_date.append(col)
             else:
                 self.features_cat.append(col)
+        self.debug = debug
         log_message('debug',self.data.info(),self.debug)
         self.encoders = {}
         log_message('info',list(self.data[self.target_column].unique()),self.debug)
@@ -87,7 +88,7 @@ class AutoML:
         else:
             self.features_cat.remove(self.target_column)
         self.original_data = self.data
-        self.debug = debug
+        
             
     def refine_the_data(self):
         log_message('debug','Start casting to numarical features',self.debug)
