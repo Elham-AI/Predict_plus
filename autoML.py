@@ -512,7 +512,7 @@ class AutoML:
         self.score = self.study.best_value
         log_message('info',f'The optimized model achieved {self.score} score',self.debug)
         log_message('debug',f'The fitting phase started',self.debug)
-        temp_parameters = self.best_params
+        temp_parameters = self.best_params.copy()
         ml_algorithm = temp_parameters['ml_algorithm']
         ml_algorithm_type = self.ml_algorithms[self.ml_algorithms.algorithm==ml_algorithm]['type'].item()
         if ml_algorithm_type in ['linear','svm','knn']:
@@ -587,25 +587,34 @@ class AutoML:
                 smote = SMOTE(random_state=42)
                 X, y = smote.fit_resample(X, y)
 
-        kf = KFold(n_splits=5)
-        models = []
-        for i, (train_index, test_index) in enumerate(kf.split(X)):
-            model = eval(ml_algorithm)
-            model = model(**temp_parameters)
-            model.fit(X[train_index],y[train_index])
-            y_pred = model.predict(X[test_index])
-            y_pred = self.postprocess(y_pred,pars,self.type_num_target,self.type_cat_target,False)
-            y_test = self.postprocess(y[test_index],pars,self.type_num_target,self.type_cat_target,False)
-            score = self.evaluate(y_pred=y_pred,y_true=y_test)
-            log_message('info',f'Fold {i} with score {score}',self.debug)
-            models.append(model)
-        models = [ (f"model_{i}",j) for i,j in enumerate(models)]
+        base_model = eval(ml_algorithm)
+        base_model = base_model(**temp_parameters)
         if self.task in ['binary_classification','multi_classification']:
-            voting_model = VotingClassifier(estimators=models, voting='hard')
-        else:
-            voting_model = VotingRegressor(estimators=models)
-        voting_model.fit(X, y)
-        self.model = voting_model
+            model = BaggingClassifier(estimator=base_model)
+        elif self.task == 'reegression':
+            model  = BaggingRegressor(estimator=base_model)
+        model.fit(X,y)
+        self.model = model
+
+        # kf = KFold(n_splits=5)
+        # models = []
+        # for i, (train_index, test_index) in enumerate(kf.split(X)):
+        #     model = eval(ml_algorithm)
+        #     model = model(**temp_parameters)
+        #     model.fit(X[train_index],y[train_index])
+        #     y_pred = model.predict(X[test_index])
+        #     y_pred = self.postprocess(y_pred,pars,self.type_num_target,self.type_cat_target,False)
+        #     y_test = self.postprocess(y[test_index],pars,self.type_num_target,self.type_cat_target,False)
+        #     score = self.evaluate(y_pred=y_pred,y_true=y_test)
+        #     log_message('info',f'Fold {i} with score {score}',self.debug)
+        #     models.append(model)
+        # models = [ (f"model_{i}",j) for i,j in enumerate(models)]
+        # if self.task in ['binary_classification','multi_classification']:
+        #     voting_model = VotingClassifier(estimators=models, voting='hard')
+        # else:
+        #     voting_model = VotingRegressor(estimators=models)
+        # voting_model.fit(X, y)
+        # self.model = voting_model
         return vis.plot_optimization_history(self.study)
            
     def save(self,model_name):
@@ -633,6 +642,7 @@ class Module():
         self.task = automl.task
         self.imputer_num = automl.imputer_num
         self.imputer_cat_and_bool = automl.imputer_cat_and_bool
+        self.ml_algorithm = automl.best_params['ml_algorithm']
         self.debug=True
     
     def predict(self,data:pd.DataFrame):
@@ -694,6 +704,7 @@ class Module():
             X_cat = X_cat.values
 
         input_data = np.concatenate([X_cat,new_X_num,X_bool],axis=1)
+        print(input_data)
         output = self.model.predict(input_data)
         if self.task == 'regression':
             if self.type_num_target == 'min_max':
