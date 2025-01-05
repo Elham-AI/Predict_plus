@@ -255,7 +255,6 @@ def delete_model(user_id:int,model_name: str,model_id:int):
             delete_model_from_nginx_config(user_id=user_id,model_name=model_id,container_port=port)
         except Exception as e:
             print(e)
-        shutil.rmtree(os.path.join('Deployments',str(model_id)))
         update_data = {"status":2,"is_deleted":True}
         response = requests.put(f"{BASE_URL}/models/{model_id}", json=update_data) 
         return {"message": "Model deleted successfully"}
