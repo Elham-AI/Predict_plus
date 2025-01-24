@@ -247,7 +247,7 @@ def predict_model(request:PredictRequest):
         headers = {
             "x-api-key":api_key
         }
-        print(url)
+        print(payload)
         response = requests.post(url,data=payload,headers=headers)
         predictions = json.loads(response.text)
         requests.delete(f"{BASE_URL}/api_keys/{api_key_id}")
