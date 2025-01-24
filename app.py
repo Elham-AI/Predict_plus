@@ -235,7 +235,7 @@ def predict_model(request:PredictRequest):
         api_key_url = f"{BASE_URL}/api_keys"
         payload = json.dumps({
             "user_id" :data.user_id,
-            "api_name" :uuid.uuid1()
+            "api_name" :str(uuid.uuid4())[:8]
         })
         response = requests.post(api_key_url,data=payload)
         api_key = json.loads(response.text)["api_key"]
