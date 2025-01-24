@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, HTTPException,BackgroundTasks
+from fastapi import FastAPI, UploadFile, HTTPException,BackgroundTasks,Request
 import pandas as pd
 from autoML import AutoML,Module
 import os
@@ -64,6 +64,12 @@ class TrainRequest(BaseModel):
     target_column: str
     id_columns: Optional[List[str]] = []
     training_level: int = 500
+
+class PredictRequest(BaseModel):
+    port:int
+    model_name:str
+    user_id:int
+    data:list
 
 def clean_up(model_id):
     os.remove(f"Models/{model_id}_tuner.pkl")
@@ -222,24 +228,31 @@ def train_model(model_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# @app.post("/predict")
-# def predict_model(user_id: str,model_name: str, input_data: dict):
-#     try:
-#         tuner_path = f"{user_id}-{model_name}_tuner.pkl"
-#         model_path = f"{user_id}-{model_name}_model.pkl"
-#         # if not os.path.exists(model_path):
-#         #     raise HTTPException(status_code=404, detail="Model not found")
-#         with open(tuner_path,'rb') as f: 
-#             tuner = pickle.load(f)
-#         with open(model_path,'rb') as f: 
-#             model = pickle.load(f)
-#         tuner.model = model
-#         trained_model = Module(tuner)
-#         input_df = pd.DataFrame([input_data])
-#         prediction = trained_model.predict(input_df)
-#         return {"prediction": prediction.tolist()}
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=str(e))
+@app.post("/predict")
+def predict_model(request:PredictRequest):
+    try:
+        data = request.json()
+        api_key_url = f"{BASE_URL}/api_keys"
+        payload = json.dumps({
+            "user_id" :data["user_id"],
+            "api_name" :uuid.uuid1()
+        })
+        response = requests.post(api_key_url,data=payload)
+        api_key = json.loads(response.text)["api_key"]
+        api_key_id = json.loads(response.text)["api_key_id"]
+        url = f"""http://127.0.0.1:{data["port"]}/{data["model_name"]}/{data["user_id"]}"""
+        payload = json.dumps({
+            "data" :data["data"]
+        })
+        headers = {
+            "x-api-key":api_key
+        }
+        response = requests.post(url,data=payload,headers=headers)
+        predictions = json.loads(response.text)
+        requests.delete(f"{BASE_URL}/api_keys/{api_key_id}")
+        return predictions
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete("/delete")
 def delete_model(user_id:int,model_name: str,model_id:int):
@@ -250,14 +263,14 @@ def delete_model(user_id:int,model_name: str,model_id:int):
             delete_container(container_id=container_id)
             port = int(containers[containers['CONTAINER ID']==container_id]['COMMAND'].tolist()[0][-1])
         except Exception as e:
-            print(e) 
+            raise HTTPException(status_code=500, detail=str(e))
         try:
             delete_model_from_nginx_config(user_id=user_id,model_name=model_id,container_port=port)
         except Exception as e:
-            print(e)
+            raise HTTPException(status_code=500, detail=str(e))
         update_data = {"status":2}
-        response = requests.put(f"{BASE_URL}/models/status/{model_id}", json=update_data)
-        response = requests.delete(f"{BASE_URL}/models/{model_id}", json=update_data) 
+        requests.put(f"{BASE_URL}/models/status/{model_id}", json=update_data)
+        requests.delete(f"{BASE_URL}/models/{model_id}", json=update_data) 
         return {"message": "Model deleted successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
