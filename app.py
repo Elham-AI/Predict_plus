@@ -240,7 +240,7 @@ def predict_model(request:PredictRequest):
         response = requests.post(api_key_url,data=payload)
         api_key = json.loads(response.text)["api_key"]
         api_key_id = json.loads(response.text)["api_key_id"]
-        url = f"""http://127.0.0.1:{data.port}/{data.model_name}/{data.user_id}"""
+        url = f"""http://127.0.0.1:{data.port}/{data.user_id}/{data.model_name}"""
         payload = json.dumps({
             "data" :data.data
         })
