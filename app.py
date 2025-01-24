@@ -231,18 +231,18 @@ def train_model(model_id: str):
 @app.post("/predict")
 def predict_model(request:PredictRequest):
     try:
-        data = request.json()
+        data = request
         api_key_url = f"{BASE_URL}/api_keys"
         payload = json.dumps({
-            "user_id" :data["user_id"],
+            "user_id" :data.user_id,
             "api_name" :uuid.uuid1()
         })
         response = requests.post(api_key_url,data=payload)
         api_key = json.loads(response.text)["api_key"]
         api_key_id = json.loads(response.text)["api_key_id"]
-        url = f"""http://127.0.0.1:{data["port"]}/{data["model_name"]}/{data["user_id"]}"""
+        url = f"""http://127.0.0.1:{data.port}/{data.model_name}/{data.user_id}"""
         payload = json.dumps({
-            "data" :data["data"]
+            "data" :data.data
         })
         headers = {
             "x-api-key":api_key
@@ -250,6 +250,7 @@ def predict_model(request:PredictRequest):
         response = requests.post(url,data=payload,headers=headers)
         predictions = json.loads(response.text)
         requests.delete(f"{BASE_URL}/api_keys/{api_key_id}")
+        print(predictions)
         return predictions
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
