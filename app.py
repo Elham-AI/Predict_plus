@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, HTTPException,BackgroundTasks,Request
+from fastapi import FastAPI, UploadFile, HTTPException,BackgroundTasks,Request,Form
 import pandas as pd
 from autoML import AutoML,Module
 import os
@@ -243,6 +243,60 @@ def predict_model(request:PredictRequest):
         url = f"""http://127.0.0.1:{data.port}/{data.user_id}/{data.model_name}/predict"""
         payload = json.dumps({
             "data" :data.data
+        })
+        headers = {
+            "x-api-key":api_key
+        }
+        print(payload)
+        response = requests.post(url,data=payload,headers=headers)
+        predictions = json.loads(response.text)
+        requests.delete(f"{BASE_URL}/api_keys/{api_key_id}")
+        print(predictions)
+        return predictions
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@app.post("/upload/predict")
+def predict_model(file:UploadFile = Form(...),user_id : int=Form(...),port:int=Form(...),model_name:str=Form(...)):
+    try:
+        valid_extensions = ["csv", "xlsx", "parquet"]
+        file_extension = file.filename.split(".")[-1].lower()
+
+        if file_extension not in valid_extensions:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid file format '{file_extension}'. Allowed formats: {', '.join(valid_extensions)}"
+            )
+        
+        content = file.file.read()
+
+        current_dir = os.getcwd()
+        os.makedirs(os.path.join(current_dir,"tmp"),exist_ok=True)
+        temp_filename = os.path.join(current_dir,"tmp",f"{str(uuid.uuid4())[:8]}_{file.filename}")
+
+        with open(temp_filename, "wb") as temp_file:
+            temp_file.write(content)
+        
+        if file_extension == "csv":
+            data = pd.read_csv(temp_filename)
+        elif file_extension == "xlsx":
+            data = pd.read_excel(temp_filename)
+        elif file_extension == "parquet":
+            data = pd.read_parquet(temp_filename)
+
+        data = data.to_dict("records")
+
+        api_key_url = f"{BASE_URL}/api_keys"
+        payload = json.dumps({
+            "user_id" :user_id,
+            "api_name" :str(uuid.uuid4())[:8]
+        })
+        response = requests.post(api_key_url,data=payload)
+        api_key = json.loads(response.text)["api_key"]
+        api_key_id = json.loads(response.text)["api_key_id"]
+        url = f"""http://127.0.0.1:{port}/{user_id}/{model_name}/predict"""
+        payload = json.dumps({
+            "data" :data
         })
         headers = {
             "x-api-key":api_key

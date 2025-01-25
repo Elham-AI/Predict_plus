@@ -48,7 +48,7 @@ def get_images_and_containers():
 def run_container(image, ports,name):
     client = docker.from_env()
     try:
-        container = client.containers.run(image, ports=ports, detach=True,name=name)
+        container = client.containers.run(image, ports=ports, detach=True,name=name,restart_policy={"Name":"on-failure","MaximumRetryCount":3})
         return container.id
     except ContainerError as e:
         raise e
