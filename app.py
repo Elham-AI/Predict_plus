@@ -111,7 +111,7 @@ def deploy(model_id,user_id,model_name):
     # file_content = file_content.replace("<model_name>",model_name)
     # with open(os.path.join(dist,'README.md'),'w') as f:
     #     f.write(file_content)
-
+ 
     
     with open(os.path.join(dist,'dockerfile'),'r') as f:
         file_content = f.read()
