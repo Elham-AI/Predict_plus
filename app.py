@@ -247,11 +247,9 @@ def predict_model(request:PredictRequest):
         headers = {
             "x-api-key":api_key
         }
-        print(payload)
         response = requests.post(url,data=payload,headers=headers)
         predictions = json.loads(response.text)
         requests.delete(f"{BASE_URL}/api_keys/{api_key_id}")
-        print(predictions)
         return predictions
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -283,7 +281,7 @@ def predict_model(file:UploadFile = Form(...),user_id : int=Form(...),port:int=F
             data = pd.read_excel(temp_filename)
         elif file_extension == "parquet":
             data = pd.read_parquet(temp_filename)
-
+        os.remove(temp_filename)
         data = data.to_dict("records")
 
         api_key_url = f"{BASE_URL}/api_keys"
@@ -301,11 +299,9 @@ def predict_model(file:UploadFile = Form(...),user_id : int=Form(...),port:int=F
         headers = {
             "x-api-key":api_key
         }
-        print(payload)
         response = requests.post(url,data=payload,headers=headers)
         predictions = json.loads(response.text)
         requests.delete(f"{BASE_URL}/api_keys/{api_key_id}")
-        print(predictions)
         return predictions
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
