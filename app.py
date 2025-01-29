@@ -307,11 +307,11 @@ def predict_model(file:UploadFile = Form(...),user_id : int=Form(...),port:int=F
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete("/delete")
-def delete_model(user_id:int,model_name: str,model_id:int):
+def delete_model(user_id:int,model_id:int):
     try:
         try:
             _, containers = get_images_and_containers()
-            container_id = containers[containers['REPOSITORY']==f"{model_name}:latest"].any() 
+            container_id = containers[containers['NAMES']==f"{user_id}_{model_id}"]['CONTAINER ID'].item()
             delete_container(container_id=container_id)
             port = int(containers[containers['CONTAINER ID']==container_id]['COMMAND'].tolist()[0][-1])
         except Exception as e:
