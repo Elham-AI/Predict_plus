@@ -347,8 +347,6 @@ def start_model(user_id: str,model_id:int):
     try:
         _, containers = get_images_and_containers()
         container_id = containers[containers['NAMES']==f"{user_id}_{model_id}"]['CONTAINER ID'].item()
-        print(user_id,'-',model_id)
-        print(container_id)
         start_container(container_id=container_id)
         update_data = {"status":1}
         response = requests.put(f"{BASE_URL}/models/status/{model_id}", json=update_data)
