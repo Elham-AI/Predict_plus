@@ -50,8 +50,8 @@ def add_model_to_nginx_config(user_id,model_name, container_port):
     #     f"server_name {domain_name};\n\n{upstream_block}"
     # )
     nginx_config = nginx_config.replace(
-        f"ssl_ciphers ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;",
-        f"ssl_ciphers ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;\n\n{location_block}"
+        f"#<add_block_here>",
+        f"#<add_block_here>\n\n{location_block}"
     )
     
     # Write the updated Nginx config back to the file
