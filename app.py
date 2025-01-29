@@ -307,7 +307,7 @@ def predict_model(file:UploadFile = Form(...),user_id : int=Form(...),port:int=F
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete("/delete")
-def delete_model(user_id:int,model_id:int):
+def delete_model(user_id:int,model_name:str,model_id:int):
     try:
         try:
             _, containers = get_images_and_containers()
@@ -317,7 +317,7 @@ def delete_model(user_id:int,model_id:int):
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
         try:
-            delete_model_from_nginx_config(user_id=user_id,model_name=model_id,container_port=port)
+            delete_model_from_nginx_config(user_id=user_id,model_name=model_name,container_port=port)
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
         update_data = {"status":2}
@@ -332,12 +332,9 @@ def stop_model(user_id: int,model_id:int):
     try:
         _, containers = get_images_and_containers()
         container_id = containers[containers['NAMES']==f"{user_id}_{model_id}"]['CONTAINER ID'].item()
-        print(user_id,'-',model_id)
-        print(container_id)
         stop_container(container_id=container_id)
         update_data = {"status":2}
         response = requests.put(f"{BASE_URL}/models/status/{model_id}", json=update_data)
-        print(response.text)
         return {"message": "Model stopped successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -350,7 +347,6 @@ def start_model(user_id: str,model_id:int):
         start_container(container_id=container_id)
         update_data = {"status":1}
         response = requests.put(f"{BASE_URL}/models/status/{model_id}", json=update_data)
-        print(response.text)
         return {"message": "Model started successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
