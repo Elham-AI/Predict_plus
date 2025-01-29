@@ -83,6 +83,7 @@ Pygments==2.18.0
 pyparsing==3.2.0
 python-dateutil==2.9.0.post0
 python-dotenv==1.0.1
+python-multipart==0.0.20
 pytz==2024.2
 pywin32==308
 PyYAML==6.0.2
@@ -114,6 +115,7 @@ typing_extensions==4.12.2
 tzdata==2024.2
 urllib3==2.2.3
 uvicorn==0.32.0
+watchdog==4.0.2
 wcwidth==0.2.13
 wrapt==1.17.0
 yarl==1.18.3
