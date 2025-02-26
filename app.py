@@ -248,8 +248,10 @@ def predict_model(request:PredictRequest):
             "x-api-key":api_key
         }
         response = requests.post(url,data=payload,headers=headers)
-        predictions = json.loads(response.text)
         requests.delete(f"{BASE_URL}/api_keys/{api_key_id}")
+        if response.status_code!= 200:
+            raise HTTPException(status_code=500, detail=str(response.text))
+        predictions = json.loads(response.text)
         return predictions
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
