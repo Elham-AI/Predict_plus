@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 from fastapi import BackgroundTasks, HTTPException
 import certifi
+import uvicorn
 
 load_dotenv(override=True)
 AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
@@ -362,3 +363,6 @@ def deployed_models():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+if __name__ == "__main__":
+    # Run the server. Adjust host/port if needed.
+    uvicorn.run(app, host="0.0.0.0", port=8001)

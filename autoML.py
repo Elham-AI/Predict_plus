@@ -4,7 +4,8 @@ import numpy as np
 from lightgbm import *
 from sklearn.neural_network import *
 from catboost import CatBoostClassifier,CatBoostRegressor
-from imblearn.over_sampling import SMOTE
+from imblearn.over_sampling import SMOTE,SVMSMOTE,KMeansSMOTE
+from imblearn.under_sampling import AllKNN,NeighbourhoodCleaningRule,ClusterCentroids
 from tqdm import tqdm
 import logging
 from sklearn.model_selection import KFold
@@ -78,18 +79,18 @@ class AutoML:
         log_message('debug',self.data.info(),self.debug)
         self.encoders = {}
         log_message('info',list(self.data[self.target_column].unique()),self.debug)
-        self.refine_the_data()
-        log_message('info',list(self.data[self.target_column].unique()),self.debug)
-        log_message('debug',self.data.info(),self.debug)
         if 'float' in str(self.data[self.target_column].dtype) or 'int' in str(self.data[self.target_column].dtype):
             self.features_num.remove(self.target_column)
         elif 'bool' in str(self.data[self.target_column].dtype):
             self.features_bool.remove(self.target_column)
         else:
             self.features_cat.remove(self.target_column)
-        self.original_data = self.data
+        self.refine_the_data()
+        log_message('info',list(self.data[self.target_column].unique()),self.debug)
+        log_message('debug',self.data.info(),self.debug)
         
-            
+        self.original_data = self.data
+                    
     def refine_the_data(self):
         log_message('debug','Start casting to numarical features',self.debug)
         # from catagorical data to numarical
@@ -332,8 +333,7 @@ class AutoML:
     
     def evaluate(self,y_true,y_pred):
         if self.task == 'multi_classification':
-            score = cohen_kappa_score(y_true, y_pred, weights='quadratic')
-            # score = f1_score(y_true=y_true,y_pred=y_pred,average='weighted')
+            score = f1_score(y_true=y_true,y_pred=y_pred,average='weighted')
         elif self.task == 'binary_classification':
             score = f1_score(y_true=y_true,y_pred=y_pred)
         elif self.task == 'regression':
@@ -458,18 +458,24 @@ class AutoML:
             
             kf = KFold(n_splits=5)
             if self.task in ['binary_classification','multi_classification']:
-                upsample = trial.suggest_categorical("upsampling_smote",[True,False])
+                imbalance_resolver = trial.suggest_categorical("imbalance_resolver",["over_sampling","under_sampling",None])
+
+            if imbalance_resolver == "over_sampling":
+                sampler = trial.suggest_categorical("over_sampler",["SMOTE","SVMSMOTE","KMeansSMOTE"])
+            elif imbalance_resolver == "under_sampling":
+                sampler = trial.suggest_categorical("under_sampler",["AllKNN","NeighbourhoodCleaningRule","ClusterCentroids"])
             else:
-                upsample = False
+                sampler = None
+
             scores = []
             log_message("debug","Fit "+ml_algorithm,self.debug)
             log_message("debug","Trial_parameters: "+str(trial_parameters),self.debug)
             for i, (train_index, test_index) in enumerate(kf.split(X=X,y=y)):
                 X_train, X_test, y_train, y_test = X[train_index],X[test_index],y[train_index],y[test_index]
 
-                if upsample:
-                    smote = SMOTE(random_state=42)
-                    X_train, y_train = smote.fit_resample(X_train, y_train)
+                if sampler:
+                    sampler_obj = eval(sampler)
+                    X_train, y_train = sampler_obj.fit_resample(X_train, y_train)
                 model = eval(ml_algorithm)
                 model = model(**trial_parameters)
             
@@ -581,11 +587,17 @@ class AutoML:
 
         self.numarical_preprocessing_parameters = pars
         if self.task in ['binary_classification','multi_classification']:
-            upsample = temp_parameters["upsampling_smote"]
-            del temp_parameters['upsampling_smote']
-            if upsample:
-                smote = SMOTE(random_state=42)
-                X, y = smote.fit_resample(X, y)
+            imbalance_resolver = temp_parameters['imbalance_resolver']
+            del temp_parameters['imbalance_resolver']
+            if imbalance_resolver == "over_sampling":
+                sampler = temp_parameters['over_sampler']
+            elif imbalance_resolver == "under_sampling":
+                sampler = temp_parameters['under_sampling']
+            else:
+                sampler = None
+            if sampler:
+                sampler_obj = eval(sampler)
+                X, y = sampler_obj.fit_resample(X, y)
 
         base_model = eval(ml_algorithm)
         base_model = base_model(**temp_parameters)
