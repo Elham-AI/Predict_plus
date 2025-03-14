@@ -30,11 +30,11 @@ from datetime import datetime
 import optuna.visualization as vis
 from sklearn.impute import KNNImputer,SimpleImputer
 logging.basicConfig(
-    # filename='logs.log', 
-    # filemode='a', 
-    # format='%(asctime)s - %(levelname)s : %(message)s', 
-    level=logging.INFO
+    filename='log.log', 
+    filemode='a', 
+    format='%(asctime)s - %(levelname)s : %(message)s'
     )
+
 def log_message(level, message,debug):
     if debug:
         if level.lower() == 'info':
@@ -79,6 +79,7 @@ class AutoML:
         log_message('debug',self.data.info(),self.debug)
         self.encoders = {}
         log_message('info',list(self.data[self.target_column].unique()),self.debug)
+
         if 'float' in str(self.data[self.target_column].dtype) or 'int' in str(self.data[self.target_column].dtype):
             self.features_num.remove(self.target_column)
         elif 'bool' in str(self.data[self.target_column].dtype):
@@ -177,6 +178,7 @@ class AutoML:
             self.features_num.append(col+'_'+'day_of_year'+'_sin')
             self.data[col+'_'+'hour'+'_sin'] = (np.pi *self.data[col+'_'+'hour'] / 12).apply(lambda x:np.sin(x))
             self.features_num.append(col+'_'+'hour'+'_sin')
+
         # remove nan columns
         nan_columns = list(self.data.isna().all()[self.data.isna().all()].index)
         self.data = self.data.dropna(axis=1,how='all')
@@ -188,11 +190,6 @@ class AutoML:
             elif col in self.features_bool:
                 self.features_bool.remove(col)
         self.data = self.data.drop(columns=self.features_date)
-
-        # Fill nan columns
-        # self.data[self.features_cat] = self.data[self.features_cat].fillna('UNK')
-        # self.data[self.features_num] = self.data[self.features_num].fillna(0)
-        # self.data[self.features_bool] = self.data[self.features_bool].fillna(False)
         
         # Drop constant columns
         constant_columns = list(self.data[self.features_num].std(axis=0)[self.data[self.features_num].std(axis=0)==0].index)
