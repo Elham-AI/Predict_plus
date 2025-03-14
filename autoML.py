@@ -14,7 +14,7 @@ import os
 from datetime import timedelta
 from sklearn.model_selection import KFold
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_absolute_percentage_error,mean_absolute_error,r2_score,f1_score,cohen_kappa_score,log_loss
+from sklearn.metrics import mean_absolute_percentage_error,mean_absolute_error,r2_score,f1_score,cohen_kappa_score,log_loss,auc,mean_squared_error
 from sklearn.ensemble import VotingRegressor,VotingClassifier
 from sklearn.linear_model import *
 from sklearn.naive_bayes import *
@@ -30,10 +30,9 @@ from datetime import datetime
 import optuna.visualization as vis
 from sklearn.impute import KNNImputer,SimpleImputer
 logging.basicConfig(
-    # filename='logs.log', 
-    # filemode='a', 
-    # format='%(asctime)s - %(levelname)s : %(message)s', 
-    level=logging.INFO
+    filename='logs.log', 
+    filemode='a', 
+    format='%(asctime)s - %(levelname)s : %(message)s', 
     )
 def log_message(level, message,debug):
     if debug:
@@ -188,11 +187,6 @@ class AutoML:
             elif col in self.features_bool:
                 self.features_bool.remove(col)
         self.data = self.data.drop(columns=self.features_date)
-
-        # Fill nan columns
-        # self.data[self.features_cat] = self.data[self.features_cat].fillna('UNK')
-        # self.data[self.features_num] = self.data[self.features_num].fillna(0)
-        # self.data[self.features_bool] = self.data[self.features_bool].fillna(False)
         
         # Drop constant columns
         constant_columns = list(self.data[self.features_num].std(axis=0)[self.data[self.features_num].std(axis=0)==0].index)
@@ -205,10 +199,16 @@ class AutoML:
         target_nunique = self.data[self.target_column].nunique()
         if target_nunique == 2:
             self.task = 'binary_classification'
+            self.metric = "f1-score"
+            self.direction = "maximize"
         elif str(self.data[self.target_column].dtype) == 'object':
             self.task = 'multi_classification'
+            self.metric = "f1-score"
+            self.direction = "maximize"
         elif str(self.data[self.target_column].dtype) in ['float64','float32','int64','int32']:
             self.task = 'regression'
+            self.metric = "r2-score"
+            self.direction = "maximize"
         log_message('debug',f'The selected task is {self.task}',self.debug)
     
     def preprocess(self,type_num,type_cat,type_cat_target,type_num_target):
@@ -331,13 +331,35 @@ class AutoML:
                 new_y = y.copy()
         return new_y
     
-    def evaluate(self,y_true,y_pred):
+    def evaluate(self,y_true,y_pred,y_pred_p=None):
+        # Multi classification evaluation
         if self.task == 'multi_classification':
-            score = f1_score(y_true=y_true,y_pred=y_pred,average='weighted')
+            if self.metric == "f1-score":
+                score = f1_score(y_true=y_true,y_pred=y_pred,average='weighted')
+            elif self.metric == "log-loss":
+                score = log_loss(y_true=y_true,y_pred=y_pred_p)
+            elif self.metric == "cohen-kappa-score":
+                score = cohen_kappa_score(y_true=y_true,y_pred=y_pred)
+
+        # Binary classification evaluation
         elif self.task == 'binary_classification':
-            score = f1_score(y_true=y_true,y_pred=y_pred)
+            if self.metric == "f1-score":
+                score = f1_score(y_true=y_true,y_pred=y_pred)
+            elif self.metric == "log-loss":
+                score = log_loss(y_true=y_true,y_pred=y_pred_p)
+            elif self.metric == "cohen-kappa-score":
+                score = cohen_kappa_score(y_true=y_true,y_pred=y_pred)
+
+        # Regression evaluation
         elif self.task == 'regression':
-            score = r2_score(y_true=y_true,y_pred=y_pred)
+            if self.metric == "r2-score":
+                score = r2_score(y_true=y_true,y_pred=y_pred)
+            elif self.metric == "mse":
+                score = mean_squared_error(y_true=y_true,y_pred=y_pred)
+            elif self.metric == "mae":
+                score = mean_absolute_error(y_true=y_true,y_pred=y_pred)
+            elif self.metric == "mape":
+                score = mean_absolute_percentage_error(y_true=y_true,y_pred=y_pred)
         return score
         
     def train(self,trial):
@@ -509,7 +531,7 @@ class AutoML:
     
     def init_study(self):
         log_message('debug',f'The optimization phase started',self.debug)
-        self.study = optuna.create_study(direction='maximize')
+        self.study = optuna.create_study(direction=self.direction)
 
     def final_training(self):
         self.best_trial = self.study.best_trial
